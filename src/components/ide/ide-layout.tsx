@@ -5,6 +5,7 @@ import FileTree from "./file-tree";
 import EditorPanel from "./editor-panel";
 import Toolbar from "./toolbar";
 import TerminalPanel from "./terminal-panel";
+import ChatPanel from "./chat-panel";
 import { RuntimeProvider } from "./runtime-context";
 import { DEFAULT_PROJECT_NAME } from "@/hooks/use-file-system";
 
@@ -63,9 +64,9 @@ function IdeLayoutInner() {
           <aside
             id="chat-panel"
             data-panel="chat"
-            className="w-[300px] shrink-0 border-l border-neutral-800 bg-neutral-900 p-2 text-xs text-neutral-500"
+            className="w-[300px] shrink-0 border-l border-neutral-800 bg-neutral-900"
           >
-            AI Chat (Task 13)
+            <ChatPanel />
           </aside>
         )}
       </div>
