@@ -4,11 +4,12 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createBrowserClient } from "@/lib/supabase/client";
+import { useRuntime, type Runtime } from "./runtime-context";
 
 export default function Toolbar({ projectName }: { projectName: string }) {
   const [name, setName] = useState<string>("");
   const [balance, setBalance] = useState<number | null>(null);
-  const [runtime, setRuntime] = useState("node");
+  const { runtime, setRuntime } = useRuntime();
   const [menuOpen, setMenuOpen] = useState(false);
   const router = useRouter();
 
@@ -39,7 +40,7 @@ export default function Toolbar({ projectName }: { projectName: string }) {
       <select
         aria-label="Runtime"
         value={runtime}
-        onChange={(e) => setRuntime(e.target.value)}
+        onChange={(e) => setRuntime(e.target.value as Runtime)}
         className="rounded bg-neutral-800 px-2 py-0.5"
       >
         <option value="node">Node.js</option>

@@ -4,9 +4,19 @@ import { useCallback, useState } from "react";
 import FileTree from "./file-tree";
 import EditorPanel from "./editor-panel";
 import Toolbar from "./toolbar";
+import TerminalPanel from "./terminal-panel";
+import { RuntimeProvider } from "./runtime-context";
 import { DEFAULT_PROJECT_NAME } from "@/hooks/use-file-system";
 
 export default function IdeLayout() {
+  return (
+    <RuntimeProvider>
+      <IdeLayoutInner />
+    </RuntimeProvider>
+  );
+}
+
+function IdeLayoutInner() {
   const [sidebarW, setSidebarW] = useState(200);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [chatOpen, setChatOpen] = useState(true);
@@ -47,13 +57,7 @@ export default function IdeLayout() {
           <div className="min-h-0 flex-1">
             <EditorPanel />
           </div>
-          <div
-            id="terminal-panel"
-            data-panel="terminal"
-            className="h-48 shrink-0 border-t border-neutral-800 bg-black p-2 text-xs text-neutral-500"
-          >
-            Terminal (Task 12)
-          </div>
+          <TerminalPanel />
         </main>
         {chatOpen && (
           <aside
