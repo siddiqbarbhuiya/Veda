@@ -1,0 +1,987 @@
+# IndicSandbox MVP v1.0 Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Build a BYOK browser-based AI playground where Indian college students write and run code in-browser, link their own AI API keys, and pay via UPI micro-transactions.
+
+**Architecture:** Next.js 14 App Router serves the landing page (SSR) and IDE workspace (client-only). Supabase provides auth (Google + GitHub OAuth), PostgreSQL with RLS, and real-time balance subscriptions. Code runs in-browser via WebContainers (Node.js) and Pyodide (Python). AI requests flow through a Next.js edge proxy that decrypts the user's stored API key, enforces a circuit breaker and pre-auth billing hold, then streams the provider's response back via SSE.
+
+**Tech Stack:** Next.js 14+, TypeScript, Tailwind CSS, shadcn/ui, Monaco Editor, WebContainers API, Pyodide, Supabase (Auth + PostgreSQL + Realtime), Razorpay, Node.js `crypto` (AES-256-GCM)
+
+**Spec:** `docs/specs/2026-10-29-indicsandbox-mvp-design.md`
+
+## Global Constraints
+
+- All wallet arithmetic uses integer paise. No `float` or `numeric` types in the database. No floating-point division in cost formulas.
+- Plaintext API keys must never reach disk, logs, or client-facing responses.
+- All Supabase tables use RLS. Client queries use the anon key. Server mutations that touch encrypted data or balances use the service role key.
+- IDE routes (`/(ide)`) must serve `Cross-Origin-Embedder-Policy: require-corp` and `Cross-Origin-Opener-Policy: same-origin` headers.
+- Vercel free tier: 100GB bandwidth, 10s CPU (streaming exempt), 1MB function size.
+- Supabase free tier: 500MB DB, 50K MAU, 2GB bandwidth.
+- Minimum browser: Chrome 90+, Firefox 100+, Safari 16.4+.
+
+## Review Focus
+
+1. **Concurrent AI requests draining balance below zero.** The pre-auth hold uses an atomic `UPDATE ... WHERE balance_paise >= $hold`. Two simultaneous requests must not both pass. Expect the atomic UPDATE to serialize correctly; verify under concurrent load.
+2. **Razorpay webhook replay doubling credits.** The `razorpay_payment_id` UNIQUE constraint on `transactions` prevents double-credit. Expect a duplicate webhook to return 200 with no balance change.
+3. **Circuit breaker off-by-one under concurrency.** The Postgres insert-then-count can allow 11 requests instead of 10 under high concurrency. Expect at most 11 requests in a 60-second window (documented acceptable tolerance).
+4. **WebContainers failing in incognito/restricted browsers.** Expect the IDE to show a clear error banner rather than a blank screen.
+5. **IndexedDB unavailable (incognito, storage quota).** Expect the IDE to function without persistence and show a warning banner.
+
+---
+
+### Task 1: Project Scaffold and Configuration
+
+**Files:**
+- Create: `package.json`
+- Create: `tsconfig.json`
+- Create: `next.config.ts`
+- Create: `tailwind.config.ts`
+- Create: `src/app/layout.tsx`
+- Create: `src/app/page.tsx`
+- Create: `.env.example`
+- Create: `.gitignore`
+- Create: `postcss.config.js`
+- Create: `src/app/globals.css`
+
+**Interfaces:**
+- Consumes: nothing (first task)
+- Produces: a working Next.js app that renders a placeholder page at `/`. `next.config.ts` exports the COOP/COEP headers for `/(ide)` routes. `.env.example` lists all 10 env vars from the spec.
+
+- [ ] **Step 1: Initialize the Next.js project**
+
+Run: `npx create-next-app@latest indicsandbox --typescript --tailwind --eslint --app --src-dir --import-alias "@/*" --use-npm`
+
+- [ ] **Step 2: Install core dependencies**
+
+Run: `npm install @supabase/supabase-js @supabase/ssr`
+
+- [ ] **Step 3: Install dev dependencies**
+
+Run: `npm install -D vitest @testing-library/react @testing-library/jest-dom jsdom`
+
+- [ ] **Step 4: Create `vitest.config.ts`**
+
+Configure with `jsdom` environment, path aliases matching `tsconfig.json`, and `src/` as the root.
+
+- [ ] **Step 5: Add COOP/COEP headers to `next.config.ts`**
+
+Add the `headers()` async function returning `Cross-Origin-Embedder-Policy: require-corp` and `Cross-Origin-Opener-Policy: same-origin` for source pattern `/(ide)(.*)`.
+
+- [ ] **Step 6: Create `.env.example`**
+
+List all 10 env vars from spec §14 with placeholder values and comments.
+
+- [ ] **Step 7: Create `.gitignore`**
+
+Include `node_modules/`, `.next/`, `.env`, `.env.local`.
+
+- [ ] **Step 8: Write the landing page placeholder in `src/app/page.tsx`**
+
+Render a centered heading: "IndicSandbox — AI Playground for Indian Students" and a "Get Started" link to `/login`.
+
+- [ ] **Step 9: Verify the dev server starts**
+
+Run: `npm run dev`
+Expected: Page renders at `http://localhost:3000` with the heading.
+
+- [ ] **Step 10: Initialize git and commit**
+
+```bash
+git init
+git add .
+git commit -m "feat: scaffold Next.js project with Tailwind, Supabase deps, COOP/COEP headers"
+```
+
+---
+
+### Task 2: Supabase Schema and Migrations
+
+**Files:**
+- Create: `supabase/migrations/00001_create_profiles.sql`
+- Create: `supabase/migrations/00002_create_api_keys.sql`
+- Create: `supabase/migrations/00003_create_transactions.sql`
+- Create: `supabase/migrations/00004_create_rate_config.sql`
+- Create: `supabase/migrations/00005_create_circuit_breaker_log.sql`
+- Create: `supabase/migrations/00006_create_profile_trigger.sql`
+- Create: `supabase/migrations/00007_create_cleanup_cron.sql`
+- Create: `supabase/seed.sql`
+
+**Interfaces:**
+- Consumes: nothing
+- Produces: SQL migration files that create all 5 tables, RLS policies, the `on_auth_user_created` trigger, the `pg_cron` cleanup job, and seed data for `rate_config`. These migrations run via `npx supabase db push` or the Supabase dashboard SQL editor.
+
+- [ ] **Step 1: Create `00001_create_profiles.sql`**
+
+```sql
+CREATE TABLE profiles (
+  id uuid PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  email text,
+  display_name text,
+  balance_paise integer NOT NULL DEFAULT 1000,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Users read own profile" ON profiles FOR SELECT USING (auth.uid() = id);
+CREATE POLICY "Users update own profile" ON profiles FOR UPDATE USING (auth.uid() = id);
+```
+
+- [ ] **Step 2: Create `00002_create_api_keys.sql`**
+
+Table with columns: `id` (uuid PK default gen_random_uuid()), `user_id` (FK → profiles.id ON DELETE CASCADE), `provider` (text CHECK in ('openai','gemini','anthropic')), `encrypted_key` (text NOT NULL), `iv` (text NOT NULL), `auth_tag` (text NOT NULL), `label` (text), `created_at`, `updated_at`. UNIQUE on `(user_id, provider)`. RLS: SELECT and DELETE for `auth.uid() = user_id`.
+
+- [ ] **Step 3: Create `00003_create_transactions.sql`**
+
+Table with columns: `id` (uuid PK), `user_id` (FK → profiles.id), `type` (text CHECK in ('topup','ai_usage','bonus')), `amount_paise` (integer NOT NULL), `balance_after_paise` (integer NOT NULL), `description` (text), `metadata` (jsonb), `razorpay_payment_id` (text UNIQUE), `created_at`. RLS: SELECT for own rows.
+
+- [ ] **Step 4: Create `00004_create_rate_config.sql`**
+
+Table with columns: `id` (uuid PK), `provider` (text), `model` (text), `input_paise_per_1k_tokens` (integer), `output_paise_per_1k_tokens` (integer), `is_active` (boolean DEFAULT true), `updated_at`. UNIQUE on `(provider, model)`. RLS: SELECT for authenticated.
+
+- [ ] **Step 5: Create `00005_create_circuit_breaker_log.sql`**
+
+Table with columns: `id` (uuid PK), `user_id` (FK → profiles.id), `requested_at` (timestamptz DEFAULT now()). RLS enabled, no client policies. Index on `(user_id, requested_at)`.
+
+- [ ] **Step 6: Create `00006_create_profile_trigger.sql`**
+
+```sql
+CREATE OR REPLACE FUNCTION handle_new_user()
+RETURNS trigger AS $$
+BEGIN
+  INSERT INTO profiles (id, email, display_name)
+  VALUES (
+    NEW.id,
+    NEW.email,
+    COALESCE(NEW.raw_user_meta_data->>'full_name', NEW.raw_user_meta_data->>'name', split_part(NEW.email, '@', 1))
+  );
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW EXECUTE FUNCTION handle_new_user();
+```
+
+- [ ] **Step 7: Create `00007_create_cleanup_cron.sql`**
+
+```sql
+SELECT cron.schedule(
+  'cleanup-circuit-breaker',
+  '*/5 * * * *',
+  $$DELETE FROM circuit_breaker_log WHERE requested_at < now() - interval '120 seconds'$$
+);
+```
+
+- [ ] **Step 8: Create `supabase/seed.sql`**
+
+Insert the 6 rows from the default rate table (spec §11.1): openai/gpt-4o, openai/gpt-4o-mini, gemini/gemini-1.5-flash, gemini/gemini-1.5-pro, anthropic/claude-sonnet-4, anthropic/claude-haiku-3.5 with the exact paise rates from the spec.
+
+- [ ] **Step 9: Verify migrations parse**
+
+Run: `npx supabase db lint` (or load each file in a SQL syntax checker).
+Expected: No syntax errors.
+
+- [ ] **Step 10: Commit**
+
+```bash
+git add supabase/
+git commit -m "feat: add Supabase migrations for all tables, RLS, profile trigger, cron cleanup, and seed data"
+```
+
+---
+
+### Task 3: Supabase Auth and Client Libraries
+
+**Files:**
+- Create: `src/lib/supabase/client.ts`
+- Create: `src/lib/supabase/server.ts`
+- Create: `src/lib/supabase/middleware.ts`
+- Create: `src/middleware.ts`
+- Create: `src/app/(auth)/login/page.tsx`
+- Create: `src/app/(auth)/auth/callback/route.ts`
+- Create: `src/types/database.ts`
+- Test: `src/lib/supabase/__tests__/client.test.ts`
+
+**Interfaces:**
+- Consumes: Supabase env vars from `.env.example`
+- Produces: `createBrowserClient()` from `client.ts`, `createServerClient()` from `server.ts`. Auth middleware that redirects unauthenticated users from `/(ide)` and `/(dashboard)` routes to `/login`. OAuth callback handler at `/auth/callback`. `Database` TypeScript type in `database.ts` matching the schema from Task 2.
+
+- [ ] **Step 1: Write test for `createBrowserClient()`**
+
+Test that `createBrowserClient()` returns a SupabaseClient instance. Mock the env vars.
+
+- [ ] **Step 2: Run test — expect FAIL**
+
+Run: `npx vitest run src/lib/supabase/__tests__/client.test.ts`
+Expected: FAIL — module not found.
+
+- [ ] **Step 3: Implement `src/lib/supabase/client.ts`**
+
+Export `createBrowserClient()` using `@supabase/ssr` `createBrowserClient` with `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY`.
+
+- [ ] **Step 4: Implement `src/lib/supabase/server.ts`**
+
+Export `createServerClient()` using `@supabase/ssr` `createServerClient` with cookie handling for Next.js App Router (read/set/remove cookies from `next/headers`).
+
+- [ ] **Step 5: Run test — expect PASS**
+
+Run: `npx vitest run src/lib/supabase/__tests__/client.test.ts`
+Expected: PASS
+
+- [ ] **Step 6: Create `src/types/database.ts`**
+
+Define the `Database` type with all 5 tables matching the migration schemas. Export the `Tables` helper type.
+
+- [ ] **Step 7: Implement `src/lib/supabase/middleware.ts`**
+
+Export `updateSession(request)` that refreshes the Supabase auth session via `@supabase/ssr`. If the user is not authenticated and the path starts with `/ide` or `/dashboard`, redirect to `/login`.
+
+- [ ] **Step 8: Create `src/middleware.ts`**
+
+Import and call `updateSession` from the Supabase middleware. Configure `matcher` to exclude `_next/static`, `_next/image`, `favicon.ico`, and API routes.
+
+- [ ] **Step 9: Create `/login` page**
+
+`src/app/(auth)/login/page.tsx`: two buttons — "Sign in with Google" and "Sign in with GitHub". Each calls `supabase.auth.signInWithOAuth({ provider, options: { redirectTo: '/auth/callback' } })`.
+
+- [ ] **Step 10: Create `/auth/callback` route handler**
+
+`src/app/(auth)/auth/callback/route.ts`: GET handler that exchanges the `code` query param for a session via `supabase.auth.exchangeCodeForSession(code)`, then redirects to `/ide`.
+
+- [ ] **Step 11: Verify login page renders**
+
+Run: `npm run dev`, navigate to `/login`.
+Expected: Two OAuth buttons visible.
+
+- [ ] **Step 12: Commit**
+
+```bash
+git add src/lib/supabase/ src/middleware.ts src/app/(auth)/ src/types/
+git commit -m "feat: add Supabase auth with Google/GitHub OAuth, session middleware, and DB types"
+```
+
+---
+
+### Task 4: AES-256-GCM Encryption Library
+
+**Files:**
+- Create: `src/lib/crypto/encryption.ts`
+- Test: `src/lib/crypto/__tests__/encryption.test.ts`
+
+**Interfaces:**
+- Consumes: `ENCRYPTION_SECRET` env var (32-byte hex string)
+- Produces: `encrypt(plaintext: string): { encrypted: string, iv: string, authTag: string }` and `decrypt(encrypted: string, iv: string, authTag: string): string`. Both use AES-256-GCM via Node.js `crypto` module.
+
+- [ ] **Step 1: Write tests**
+
+```typescript
+describe('encryption', () => {
+  test('encrypt returns encrypted, iv, and authTag as base64 strings', () => { ... })
+  test('decrypt recovers the original plaintext', () => {
+    const result = encrypt('sk-test-key-12345');
+    expect(decrypt(result.encrypted, result.iv, result.authTag)).toBe('sk-test-key-12345');
+  })
+  test('decrypt with wrong key throws', () => { ... })
+  test('decrypt with tampered ciphertext throws', () => { ... })
+  test('each encrypt call produces a different IV', () => {
+    const a = encrypt('same');
+    const b = encrypt('same');
+    expect(a.iv).not.toBe(b.iv);
+  })
+})
+```
+
+Set `ENCRYPTION_SECRET` to a fixed 32-byte hex string in the test setup.
+
+- [ ] **Step 2: Run tests — expect FAIL**
+
+Run: `npx vitest run src/lib/crypto/__tests__/encryption.test.ts`
+Expected: FAIL — module not found.
+
+- [ ] **Step 3: Implement `encrypt()` and `decrypt()` in `src/lib/crypto/encryption.ts`**
+
+Use `crypto.createCipheriv('aes-256-gcm', key, iv)` with a random 12-byte IV. Store ciphertext, IV, and auth tag as base64 strings. `decrypt` uses `crypto.createDecipheriv` with `setAuthTag`.
+
+- [ ] **Step 4: Run tests — expect PASS**
+
+Run: `npx vitest run src/lib/crypto/__tests__/encryption.test.ts`
+Expected: All 5 tests PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/lib/crypto/
+git commit -m "feat: add AES-256-GCM encrypt/decrypt library with tests"
+```
+
+---
+
+### Task 5: API Key Management Endpoints
+
+**Files:**
+- Create: `src/app/api/keys/route.ts`
+- Create: `src/app/api/keys/[id]/route.ts`
+- Test: `src/app/api/keys/__tests__/route.test.ts`
+
+**Interfaces:**
+- Consumes: `encrypt()` and `decrypt()` from Task 4. `createServerClient()` from Task 3. `SUPABASE_SERVICE_ROLE_KEY` env var for writes.
+- Produces: `POST /api/keys` (upsert encrypted key, returns `{ id, provider, label }`), `GET /api/keys` (returns `[{ id, provider, label, created_at }]`), `DELETE /api/keys/:id` (returns 204).
+
+- [ ] **Step 1: Write tests for POST /api/keys**
+
+Test: valid request returns 201 with `{ id, provider, label }`. Test: missing `provider` returns 400. Test: invalid provider returns 400. Test: unauthenticated request returns 401.
+
+- [ ] **Step 2: Run tests — expect FAIL**
+
+Run: `npx vitest run src/app/api/keys/__tests__/route.test.ts`
+Expected: FAIL.
+
+- [ ] **Step 3: Implement `POST` handler in `src/app/api/keys/route.ts`**
+
+1. Authenticate via `createServerClient()` and `supabase.auth.getUser()`.
+2. Validate request body: `provider` must be one of `openai`, `gemini`, `anthropic`; `key` must be a non-empty string.
+3. Call `encrypt(key)` to get `{ encrypted, iv, authTag }`.
+4. Use service role client to upsert into `api_keys` with `ON CONFLICT (user_id, provider) DO UPDATE`.
+5. Return 201 with `{ id, provider, label }`.
+
+- [ ] **Step 4: Implement `GET` handler in `src/app/api/keys/route.ts`**
+
+Authenticate, then select `id, provider, label, created_at` from `api_keys` where `user_id` matches. Return 200 with the array.
+
+- [ ] **Step 5: Implement `DELETE` handler in `src/app/api/keys/[id]/route.ts`**
+
+Authenticate, then delete from `api_keys` where `id` and `user_id` match. Return 204.
+
+- [ ] **Step 6: Write tests for GET and DELETE**
+
+Test: GET returns the stored key metadata (no encrypted fields). Test: DELETE returns 204 and the key is gone on subsequent GET.
+
+- [ ] **Step 7: Run all tests — expect PASS**
+
+Run: `npx vitest run src/app/api/keys/__tests__/route.test.ts`
+Expected: All PASS.
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add src/app/api/keys/
+git commit -m "feat: add API key CRUD endpoints with AES-256-GCM encryption"
+```
+
+---
+
+### Task 6: Billing Library (Cost Calculation and Pre-Auth Hold)
+
+**Files:**
+- Create: `src/lib/billing/cost.ts`
+- Create: `src/lib/billing/hold.ts`
+- Test: `src/lib/billing/__tests__/cost.test.ts`
+- Test: `src/lib/billing/__tests__/hold.test.ts`
+
+**Interfaces:**
+- Consumes: `rate_config` table via Supabase service client. `profiles` table for balance operations.
+- Produces: `calculateCostPaise(inputTokens: number, outputTokens: number, rate: { input_paise_per_1k_tokens: number, output_paise_per_1k_tokens: number }): number` — pure function, integer-only math. `estimateHoldPaise(inputTokens: number, rate: RateConfig): number` — returns hold clamped to [10, 500]. `deductHold(userId: string, holdPaise: number): Promise<{ success: boolean, newBalance: number }>` — atomic UPDATE. `settleHold(userId: string, holdPaise: number, actualCostPaise: number): Promise<void>` — refunds the difference and inserts a transaction.
+
+- [ ] **Step 1: Write tests for `calculateCostPaise`**
+
+```typescript
+test('zero tokens returns zero', () => {
+  expect(calculateCostPaise(0, 0, { input_paise_per_1k_tokens: 18, output_paise_per_1k_tokens: 72 })).toBe(0);
+})
+test('rounds up partial tokens (1 input token at 18 paise/1k = 1 paisa)', () => {
+  expect(calculateCostPaise(1, 0, { input_paise_per_1k_tokens: 18, output_paise_per_1k_tokens: 72 })).toBe(1);
+})
+test('1000 input + 1000 output at gpt-4o rates = 18 + 72 = 90', () => {
+  expect(calculateCostPaise(1000, 1000, { input_paise_per_1k_tokens: 18, output_paise_per_1k_tokens: 72 })).toBe(90);
+})
+test('no floating point: 500 tokens at 1 paise/1k = 1 (ceil)', () => {
+  expect(calculateCostPaise(500, 0, { input_paise_per_1k_tokens: 1, output_paise_per_1k_tokens: 3 })).toBe(1);
+})
+```
+
+- [ ] **Step 2: Run tests — expect FAIL**
+
+Run: `npx vitest run src/lib/billing/__tests__/cost.test.ts`
+Expected: FAIL.
+
+- [ ] **Step 3: Implement `calculateCostPaise` in `src/lib/billing/cost.ts`**
+
+Use integer math: `Math.ceil((inputTokens * inputRate) / 1000) + Math.ceil((outputTokens * outputRate) / 1000)`. Guard against zero tokens (return 0 early to avoid ceil(0/1000) = 0).
+
+- [ ] **Step 4: Run tests — expect PASS**
+
+Run: `npx vitest run src/lib/billing/__tests__/cost.test.ts`
+Expected: All PASS.
+
+- [ ] **Step 5: Write tests for `estimateHoldPaise`**
+
+Test: hold is clamped to minimum 10. Test: hold is clamped to maximum 500. Test: normal hold is 3x the estimated input cost using the output rate.
+
+- [ ] **Step 6: Implement `estimateHoldPaise` in `src/lib/billing/hold.ts`**
+
+`Math.min(500, Math.max(10, Math.ceil((estimatedInputTokens * outputPaisePer1k * 3) / 1000)))`.
+
+- [ ] **Step 7: Write tests for `deductHold`**
+
+Mock Supabase: test that `deductHold` calls the atomic UPDATE and returns `{ success: true }` when balance is sufficient, `{ success: false }` when balance is insufficient (UPDATE returns 0 rows).
+
+- [ ] **Step 8: Implement `deductHold` and `settleHold` in `src/lib/billing/hold.ts`**
+
+`deductHold`: uses service role client to run `UPDATE profiles SET balance_paise = balance_paise - $hold WHERE id = $userId AND balance_paise >= $hold RETURNING balance_paise`. `settleHold`: runs `UPDATE profiles SET balance_paise = balance_paise + ($hold - $actual) WHERE id = $userId`, then inserts a transaction row of type `ai_usage`.
+
+- [ ] **Step 9: Run all billing tests — expect PASS**
+
+Run: `npx vitest run src/lib/billing/__tests__/`
+Expected: All PASS.
+
+- [ ] **Step 10: Commit**
+
+```bash
+git add src/lib/billing/
+git commit -m "feat: add integer-only billing library with pre-auth hold and settlement"
+```
+
+---
+
+### Task 7: Circuit Breaker
+
+**Files:**
+- Create: `src/lib/circuit-breaker/index.ts`
+- Test: `src/lib/circuit-breaker/__tests__/index.test.ts`
+
+**Interfaces:**
+- Consumes: `circuit_breaker_log` table via Supabase service client.
+- Produces: `checkCircuitBreaker(userId: string): Promise<{ allowed: boolean, retryAfterSeconds: number | null }>` — inserts a row, counts rows in last 60s. Returns `allowed: false` and `retryAfterSeconds` when count > 10.
+
+- [ ] **Step 1: Write tests**
+
+Test: first request returns `{ allowed: true }`. Test: 11th request in 60s returns `{ allowed: false, retryAfterSeconds: <number> }`. Mock the Supabase count query to simulate the window.
+
+- [ ] **Step 2: Run tests — expect FAIL**
+
+Run: `npx vitest run src/lib/circuit-breaker/__tests__/index.test.ts`
+Expected: FAIL.
+
+- [ ] **Step 3: Implement `checkCircuitBreaker` in `src/lib/circuit-breaker/index.ts`**
+
+1. Insert a row into `circuit_breaker_log` with `user_id` and `requested_at = now()`.
+2. Count rows where `user_id` matches and `requested_at > now() - 60s`.
+3. If count > 10, return `{ allowed: false, retryAfterSeconds }` where `retryAfterSeconds` is the time until the oldest request in the window expires.
+
+- [ ] **Step 4: Run tests — expect PASS**
+
+Run: `npx vitest run src/lib/circuit-breaker/__tests__/index.test.ts`
+Expected: All PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/lib/circuit-breaker/
+git commit -m "feat: add per-user circuit breaker (10 req/60s) with Postgres tracking"
+```
+
+---
+
+### Task 8: AI Provider Adapters
+
+**Files:**
+- Create: `src/lib/ai-providers/types.ts`
+- Create: `src/lib/ai-providers/openai.ts`
+- Create: `src/lib/ai-providers/gemini.ts`
+- Create: `src/lib/ai-providers/anthropic.ts`
+- Create: `src/lib/ai-providers/index.ts`
+- Test: `src/lib/ai-providers/__tests__/openai.test.ts`
+
+**Interfaces:**
+- Consumes: nothing (pure HTTP adapters)
+- Produces: `getProviderAdapter(provider: 'openai' | 'gemini' | 'anthropic'): ProviderAdapter`. The `ProviderAdapter` interface: `streamChat(apiKey: string, model: string, messages: ChatMessage[]): AsyncGenerator<{ chunk: string, done: boolean, usage?: TokenUsage }>`. `TokenUsage`: `{ input_tokens: number, output_tokens: number }`. `ChatMessage`: `{ role: 'user' | 'assistant' | 'system', content: string }`.
+
+- [ ] **Step 1: Define types in `src/lib/ai-providers/types.ts`**
+
+Export `ChatMessage`, `TokenUsage`, `ProviderAdapter` interfaces.
+
+- [ ] **Step 2: Write tests for the OpenAI adapter**
+
+Mock `fetch` to return a streaming response in OpenAI's SSE format. Test that `streamChat` yields chunks with correct `chunk` and `done` fields, and that the final yield includes `usage`.
+
+- [ ] **Step 3: Run tests — expect FAIL**
+
+Run: `npx vitest run src/lib/ai-providers/__tests__/openai.test.ts`
+Expected: FAIL.
+
+- [ ] **Step 4: Implement the OpenAI adapter in `src/lib/ai-providers/openai.ts`**
+
+Call `https://api.openai.com/v1/chat/completions` with `stream: true` and `stream_options: { include_usage: true }`. Parse each `data:` SSE line. Yield `{ chunk, done: false }` for content deltas. Yield `{ chunk: '', done: true, usage }` for the final message with usage stats.
+
+- [ ] **Step 5: Run tests — expect PASS**
+
+Run: `npx vitest run src/lib/ai-providers/__tests__/openai.test.ts`
+Expected: PASS.
+
+- [ ] **Step 6: Implement the Gemini adapter in `src/lib/ai-providers/gemini.ts`**
+
+Call `https://generativelanguage.googleapis.com/v1beta/models/{model}:streamGenerateContent?key={apiKey}`. Parse the streaming JSON response. Map to the same `ProviderAdapter` interface.
+
+- [ ] **Step 7: Implement the Anthropic adapter in `src/lib/ai-providers/anthropic.ts`**
+
+Call `https://api.anthropic.com/v1/messages` with `stream: true`. Parse SSE events (`content_block_delta`, `message_delta`, `message_stop`). Map usage from `message_start` and `message_delta` events.
+
+- [ ] **Step 8: Implement `getProviderAdapter` in `src/lib/ai-providers/index.ts`**
+
+Switch on `provider` string, return the matching adapter. Throw on unknown provider.
+
+- [ ] **Step 9: Commit**
+
+```bash
+git add src/lib/ai-providers/
+git commit -m "feat: add streaming AI provider adapters for OpenAI, Gemini, and Anthropic"
+```
+
+---
+
+### Task 9: AI Proxy Edge Route
+
+**Files:**
+- Create: `src/app/api/ai/chat/route.ts`
+- Test: `src/app/api/ai/chat/__tests__/route.test.ts`
+
+**Interfaces:**
+- Consumes: `checkCircuitBreaker()` from Task 7. `deductHold()`, `settleHold()`, `estimateHoldPaise()`, `calculateCostPaise()` from Task 6. `decrypt()` from Task 4. `getProviderAdapter()` from Task 8. `createServerClient()` from Task 3. `rate_config` and `api_keys` tables.
+- Produces: `POST /api/ai/chat` — SSE stream. Request body: `{ provider, model, messages, stream: true }`. Each SSE event: `data: { chunk, done, usage? }`. Error codes: 401, 402, 429, 400.
+
+- [ ] **Step 1: Write tests for the proxy route**
+
+Test 401: no auth token → 401. Test 400: invalid provider → 400. Test 429: circuit breaker triggered → 429 with `Retry-After` header. Test 402: insufficient balance → 402. Test 200: valid request returns SSE stream with correct content-type `text/event-stream`.
+
+- [ ] **Step 2: Run tests — expect FAIL**
+
+Run: `npx vitest run src/app/api/ai/chat/__tests__/route.test.ts`
+Expected: FAIL.
+
+- [ ] **Step 3: Implement the POST handler in `src/app/api/ai/chat/route.ts`**
+
+Export `const runtime = 'edge'`. Steps:
+1. Authenticate user from request.
+2. Validate `provider` and `model` against `rate_config`.
+3. Call `checkCircuitBreaker(userId)` → 429 if denied.
+4. Call `estimateHoldPaise()` with input token estimate (count message characters / 4).
+5. Call `deductHold(userId, hold)` → 402 if insufficient.
+6. Fetch encrypted key from `api_keys`, call `decrypt()`.
+7. Call `getProviderAdapter(provider).streamChat(key, model, messages)`.
+8. Return a `ReadableStream` that writes SSE events. On each chunk, write `data: {chunk, done}\n\n`.
+9. On the final chunk, call `calculateCostPaise()` and `settleHold()`. Include `usage` in the final event.
+10. On stream error, refund the full hold via `settleHold(userId, hold, 0)`.
+
+- [ ] **Step 4: Run tests — expect PASS**
+
+Run: `npx vitest run src/app/api/ai/chat/__tests__/route.test.ts`
+Expected: All PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/app/api/ai/chat/
+git commit -m "feat: add AI proxy edge route with circuit breaker, pre-auth hold, and SSE streaming"
+```
+
+---
+
+### Task 10: Wallet and Payment Endpoints
+
+**Files:**
+- Create: `src/lib/razorpay/client.ts`
+- Create: `src/lib/razorpay/verify.ts`
+- Create: `src/app/api/wallet/balance/route.ts`
+- Create: `src/app/api/wallet/transactions/route.ts`
+- Create: `src/app/api/wallet/topup/route.ts`
+- Create: `src/app/api/webhooks/razorpay/route.ts`
+- Test: `src/lib/razorpay/__tests__/verify.test.ts`
+- Test: `src/app/api/wallet/__tests__/topup.test.ts`
+
+**Interfaces:**
+- Consumes: `createServerClient()` from Task 3. `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`, `PAYMENT_MODE` env vars.
+- Produces: `GET /api/wallet/balance` → `{ balance_paise: number }`. `GET /api/wallet/transactions?page=1&limit=20` → `{ transactions: [...], total: number }`. `POST /api/wallet/topup` (body: `{ amount_paise: number }`) → `{ order_id: string }` (or auto-confirmed in simulator mode). `POST /api/webhooks/razorpay` → processes webhook, credits balance.
+
+- [ ] **Step 1: Write test for Razorpay webhook signature verification**
+
+```typescript
+test('valid signature returns true', () => {
+  const body = '{"entity":"event"}';
+  const secret = 'test_webhook_secret';
+  const signature = crypto.createHmac('sha256', secret).update(body).digest('hex');
+  expect(verifyWebhookSignature(body, signature, secret)).toBe(true);
+})
+test('invalid signature returns false', () => {
+  expect(verifyWebhookSignature('body', 'wrong', 'secret')).toBe(false);
+})
+```
+
+- [ ] **Step 2: Run tests — expect FAIL**
+
+Run: `npx vitest run src/lib/razorpay/__tests__/verify.test.ts`
+Expected: FAIL.
+
+- [ ] **Step 3: Implement `verifyWebhookSignature` in `src/lib/razorpay/verify.ts`**
+
+HMAC-SHA256 comparison using `crypto.timingSafeEqual`.
+
+- [ ] **Step 4: Implement `src/lib/razorpay/client.ts`**
+
+Export `createRazorpayOrder(amountPaise: number): Promise<{ id: string }>`. Uses `fetch` to call Razorpay Orders API with Basic auth. When `PAYMENT_MODE === 'simulator'`, return a fake order ID without calling Razorpay.
+
+- [ ] **Step 5: Implement wallet balance and transaction endpoints**
+
+`GET /api/wallet/balance`: authenticate, query `profiles.balance_paise` for the user. `GET /api/wallet/transactions`: authenticate, query `transactions` for the user with pagination (limit/offset from query params).
+
+- [ ] **Step 6: Write test for POST /api/wallet/topup**
+
+Test simulator mode: request with `{ amount_paise: 2900 }` returns 200 and the balance is incremented. Test that only allowed amounts (2900, 4900, 9900) are accepted. Test 10900 credited for the 9900 pack (includes 1000 bonus).
+
+- [ ] **Step 7: Implement `POST /api/wallet/topup`**
+
+Validate `amount_paise` is one of [2900, 4900, 9900]. If `PAYMENT_MODE === 'simulator'`: directly credit the balance (add bonus for 9900 pack), insert transaction, return `{ order_id: 'sim_...' }`. If `live`: call `createRazorpayOrder()`, return the order ID.
+
+- [ ] **Step 8: Implement `POST /api/webhooks/razorpay`**
+
+1. Read raw body, verify signature via `verifyWebhookSignature()`. Return 400 if invalid.
+2. Extract `razorpay_payment_id` and `order_id` from the event payload.
+3. Check `razorpay_payment_id` uniqueness: query `transactions` — if exists, return 200 (idempotent).
+4. Look up the order amount, determine credit (including bonus for 9900 pack).
+5. Atomic increment: `UPDATE profiles SET balance_paise = balance_paise + $credit WHERE id = $userId`.
+6. Insert transaction with `type: 'topup'` and `razorpay_payment_id`.
+7. Return 200.
+
+- [ ] **Step 9: Run all tests — expect PASS**
+
+Run: `npx vitest run src/lib/razorpay/__tests__/ src/app/api/wallet/__tests__/`
+Expected: All PASS.
+
+- [ ] **Step 10: Commit**
+
+```bash
+git add src/lib/razorpay/ src/app/api/wallet/ src/app/api/webhooks/
+git commit -m "feat: add wallet endpoints and Razorpay payment integration with simulator mode"
+```
+
+---
+
+### Task 11: IDE Shell — Layout, File Tree, and Monaco Editor
+
+**Files:**
+- Create: `src/app/(ide)/ide/page.tsx`
+- Create: `src/app/(ide)/ide/layout.tsx`
+- Create: `src/components/ide/ide-layout.tsx`
+- Create: `src/components/ide/file-tree.tsx`
+- Create: `src/components/ide/editor-panel.tsx`
+- Create: `src/components/ide/toolbar.tsx`
+- Create: `src/hooks/use-file-system.ts`
+- Create: `src/lib/persistence/indexeddb.ts`
+- Test: `src/lib/persistence/__tests__/indexeddb.test.ts`
+
+**Interfaces:**
+- Consumes: `createBrowserClient()` from Task 3 (for user profile and balance).
+- Produces: The IDE page at `/ide`. `useFileSystem()` hook: `{ files, activeFile, openFile, createFile, deleteFile, updateFileContent, saveAll }`. `IndexedDBStore` class: `save(userId: string, projectName: string, files: FileNode[]): Promise<void>`, `load(userId: string, projectName: string): Promise<FileNode[] | null>`. `FileNode` type: `{ name: string, path: string, type: 'file' | 'directory', content?: string, children?: FileNode[] }`.
+
+- [ ] **Step 1: Install Monaco Editor**
+
+Run: `npm install @monaco-editor/react`
+
+- [ ] **Step 2: Write test for `IndexedDBStore`**
+
+Use `fake-indexeddb` (install as dev dep). Test: `save` then `load` returns the same file tree. Test: `load` on empty DB returns null.
+
+- [ ] **Step 3: Run tests — expect FAIL**
+
+Run: `npx vitest run src/lib/persistence/__tests__/indexeddb.test.ts`
+Expected: FAIL.
+
+- [ ] **Step 4: Implement `IndexedDBStore` in `src/lib/persistence/indexeddb.ts`**
+
+Use the `idb` library (install: `npm install idb`). Database name: `indicsandbox`. Store name: `projects`. Key: `${userId}:${projectName}`. Wrap all reads/writes in try/catch — return null on failure.
+
+- [ ] **Step 5: Run tests — expect PASS**
+
+Run: `npx vitest run src/lib/persistence/__tests__/indexeddb.test.ts`
+Expected: PASS.
+
+- [ ] **Step 6: Implement `useFileSystem` hook in `src/hooks/use-file-system.ts`**
+
+Manages the in-memory file tree. On mount, loads from IndexedDB. Debounced auto-save every 5 seconds on change. Exposes `openFile`, `createFile`, `deleteFile`, `updateFileContent`. Initializes with a default `index.js` file if the project is empty.
+
+- [ ] **Step 7: Implement `toolbar.tsx`**
+
+Renders: logo, project name, runtime selector dropdown (Node.js / Python), balance display (reads from Supabase profile), "Add Credits" button (links to topup modal), settings gear, user avatar with dropdown.
+
+- [ ] **Step 8: Implement `file-tree.tsx`**
+
+Recursive tree component. Each node shows a file/folder icon and name. Click a file to open it in the editor. Right-click context menu: New File, New Folder, Rename, Delete.
+
+- [ ] **Step 9: Implement `editor-panel.tsx`**
+
+Wraps `@monaco-editor/react` `Editor` component. Receives `activeFile` from `useFileSystem`. Sets language based on file extension. Calls `updateFileContent` on change.
+
+- [ ] **Step 10: Implement `ide-layout.tsx`**
+
+Three-column resizable layout using CSS Grid or a split-pane library. Left: file tree (200px default). Center: editor + terminal (stacked). Right: AI chat panel (300px default, collapsible). The terminal panel is a placeholder div in this task (implemented in Task 12).
+
+- [ ] **Step 11: Wire up `src/app/(ide)/ide/page.tsx` and `layout.tsx`**
+
+`layout.tsx`: client component wrapper that provides `useFileSystem` context. `page.tsx`: renders `<IdeLayout />`.
+
+- [ ] **Step 12: Verify the IDE page renders**
+
+Run: `npm run dev`, navigate to `/ide` (with a valid session or by temporarily removing auth middleware for this route).
+Expected: File tree on left, Monaco editor in center, placeholder panels on right and bottom.
+
+- [ ] **Step 13: Commit**
+
+```bash
+git add src/app/(ide)/ src/components/ide/ src/hooks/ src/lib/persistence/
+git commit -m "feat: add IDE shell with Monaco editor, file tree, toolbar, and IndexedDB persistence"
+```
+
+---
+
+### Task 12: Terminal Panel (WebContainers + Pyodide)
+
+**Files:**
+- Create: `src/components/ide/terminal-panel.tsx`
+- Create: `src/hooks/use-webcontainer.ts`
+- Create: `src/hooks/use-pyodide.ts`
+- Create: `src/components/ide/runtime-context.tsx`
+
+**Interfaces:**
+- Consumes: `useFileSystem()` from Task 11 (to read file contents for execution). Runtime selection from the toolbar.
+- Produces: `useWebContainer()` hook: `{ boot, writeFiles, runCommand, terminal }`. `usePyodide()` hook: `{ load, runCode, terminal }`. `<TerminalPanel />` component that renders xterm.js output. `<RuntimeProvider>` context that tracks which runtime is active.
+
+- [ ] **Step 1: Install dependencies**
+
+Run: `npm install @webcontainer/api pyodide @xterm/xterm @xterm/addon-fit`
+
+- [ ] **Step 2: Implement `runtime-context.tsx`**
+
+React context with `{ runtime: 'node' | 'python', setRuntime }`. Default: `node`.
+
+- [ ] **Step 3: Implement `useWebContainer` hook**
+
+`boot()`: calls `WebContainer.boot()` once. `writeFiles(files)`: mounts the file tree into the WebContainer. `runCommand(cmd)`: spawns a process, pipes stdout/stderr to the terminal. Returns the exit code.
+
+- [ ] **Step 4: Implement `usePyodide` hook**
+
+`load()`: loads Pyodide from CDN via `loadPyodide()`. `runCode(code)`: calls `pyodide.runPythonAsync(code)`. Captures stdout by redirecting `sys.stdout` to a StringIO and piping to the terminal.
+
+- [ ] **Step 5: Implement `terminal-panel.tsx`**
+
+Renders an xterm.js Terminal instance. In Node.js mode: interactive shell connected to the WebContainer process. In Python mode: shows output from Pyodide `runCode`. A "Run" button at the top executes the active file.
+
+- [ ] **Step 6: Wire the terminal into `ide-layout.tsx`**
+
+Replace the terminal placeholder from Task 11 with `<TerminalPanel />`. Wrap the IDE in `<RuntimeProvider>`.
+
+- [ ] **Step 7: Verify Node.js execution**
+
+Run: `npm run dev`, navigate to `/ide`. Create `index.js` with `console.log("hello")`. Click Run or type `node index.js` in the terminal.
+Expected: "hello" appears in the terminal.
+
+- [ ] **Step 8: Verify Python execution**
+
+Switch runtime to Python. Create `main.py` with `print("hello")`. Click Run.
+Expected: "hello" appears in the terminal (after Pyodide loads).
+
+- [ ] **Step 9: Commit**
+
+```bash
+git add src/components/ide/terminal-panel.tsx src/components/ide/runtime-context.tsx src/hooks/use-webcontainer.ts src/hooks/use-pyodide.ts
+git commit -m "feat: add terminal panel with WebContainers (Node.js) and Pyodide (Python) runtimes"
+```
+
+---
+
+### Task 13: AI Chat Panel
+
+**Files:**
+- Create: `src/components/ide/chat-panel.tsx`
+- Create: `src/hooks/use-ai-chat.ts`
+- Test: `src/hooks/__tests__/use-ai-chat.test.ts`
+
+**Interfaces:**
+- Consumes: `POST /api/ai/chat` from Task 9 (SSE endpoint). `useFileSystem()` from Task 11 (to get active file content). `createBrowserClient()` from Task 3 (for user session and rate config). Balance display from toolbar.
+- Produces: `<ChatPanel />` component with model selector, message list, input box, and cost estimator. `useAiChat()` hook: `{ messages, sendMessage, isStreaming, estimatedCostPaise }`.
+
+- [ ] **Step 1: Write test for `useAiChat` SSE parsing**
+
+Mock `fetch` to return a ReadableStream of SSE events. Test that `sendMessage` appends user and assistant messages. Test that streaming chunks build up the assistant message. Test that the final event updates the cost display.
+
+- [ ] **Step 2: Run tests — expect FAIL**
+
+Run: `npx vitest run src/hooks/__tests__/use-ai-chat.test.ts`
+Expected: FAIL.
+
+- [ ] **Step 3: Implement `useAiChat` hook**
+
+State: `messages: ChatMessage[]`, `isStreaming: boolean`, `estimatedCostPaise: number`. `sendMessage(content)`: appends user message. Reads active file content from `useFileSystem`. Calls `fetch('/api/ai/chat', { method: 'POST', body: { provider, model, messages: [...history, { role: 'system', content: activeFileContent }, { role: 'user', content }] } })`. Reads the SSE stream with a `ReadableStream` reader. Parses each `data:` line. Appends chunks to the assistant message in real-time. On `done: true`, updates cost and stops streaming.
+
+- [ ] **Step 4: Run tests — expect PASS**
+
+Run: `npx vitest run src/hooks/__tests__/use-ai-chat.test.ts`
+Expected: PASS.
+
+- [ ] **Step 5: Implement `chat-panel.tsx`**
+
+Top bar: model selector dropdown (populated from `rate_config`). Below: scrollable message list with user/assistant message bubbles. Bottom: text input with Send button. While streaming: show a "Stop" button. Show estimated cost before sending. Show actual cost after each response.
+
+- [ ] **Step 6: Wire the chat panel into `ide-layout.tsx`**
+
+Replace the chat panel placeholder with `<ChatPanel />`.
+
+- [ ] **Step 7: Verify end-to-end**
+
+Run: `npm run dev`. Store an API key via the settings panel (Task 14 covers the UI; for this test, insert directly via API). Open chat panel, select a model, send a message.
+Expected: Response streams in chunk by chunk. Cost displays after completion.
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add src/components/ide/chat-panel.tsx src/hooks/use-ai-chat.ts src/hooks/__tests__/
+git commit -m "feat: add AI chat panel with SSE streaming, model selector, and cost display"
+```
+
+---
+
+### Task 14: Settings and Key Management UI
+
+**Files:**
+- Create: `src/app/(dashboard)/dashboard/page.tsx`
+- Create: `src/app/(dashboard)/dashboard/layout.tsx`
+- Create: `src/components/keys/key-form.tsx`
+- Create: `src/components/keys/key-list.tsx`
+- Create: `src/components/payments/topup-modal.tsx`
+- Create: `src/components/payments/topup-packs.tsx`
+
+**Interfaces:**
+- Consumes: `POST/GET/DELETE /api/keys` from Task 5. `POST /api/wallet/topup` and `GET /api/wallet/balance` from Task 10. `NEXT_PUBLIC_SUPABASE_URL` for Razorpay checkout (in live mode). `createBrowserClient()` from Task 3.
+- Produces: Dashboard page at `/dashboard` with two sections: API Keys and Wallet. `<KeyForm />` for adding/replacing API keys. `<KeyList />` showing stored keys with delete buttons. `<TopupModal />` showing the three topup packs and handling Razorpay checkout flow.
+
+- [ ] **Step 1: Install shadcn/ui components**
+
+Run: `npx shadcn@latest init` then `npx shadcn@latest add button card dialog dropdown-menu input label select toast`
+
+- [ ] **Step 2: Implement `key-form.tsx`**
+
+Form with: provider dropdown (OpenAI, Gemini, Anthropic), API key text input (type=password), label text input, Submit button. Calls `POST /api/keys` on submit. Shows success/error toast.
+
+- [ ] **Step 3: Implement `key-list.tsx`**
+
+Fetches `GET /api/keys` on mount. Renders a card per key: provider icon, label, created date, Delete button. Delete calls `DELETE /api/keys/:id` and removes the card.
+
+- [ ] **Step 4: Implement `topup-packs.tsx`**
+
+Renders the three topup pack cards from spec §10.2: Starter (₹29), Standard (₹49), Value (₹99 + ₹10 bonus). Each card shows price and paise credited.
+
+- [ ] **Step 5: Implement `topup-modal.tsx`**
+
+Dialog component. Shows `<TopupPacks />`. On pack selection: calls `POST /api/wallet/topup` with the amount. In simulator mode: shows "Credits added!" toast immediately. In live mode: opens Razorpay Checkout with the returned `order_id`. Load Razorpay checkout script from `https://checkout.razorpay.com/v1/checkout.js`.
+
+- [ ] **Step 6: Wire up `/dashboard` page**
+
+`layout.tsx`: standard layout with nav bar (Logo, Dashboard link, IDE link, user avatar). `page.tsx`: two-column grid — left: API Keys section (KeyForm + KeyList), right: Wallet section (balance display + TopupPacks + TopupModal trigger).
+
+- [ ] **Step 7: Connect "Add Credits" button in IDE toolbar**
+
+The toolbar's "Add Credits" button opens the `<TopupModal />` directly from the IDE (no page navigation needed).
+
+- [ ] **Step 8: Verify key management flow**
+
+Run: `npm run dev`, navigate to `/dashboard`. Add an OpenAI key. Verify it appears in the list. Delete it. Verify it disappears.
+
+- [ ] **Step 9: Verify topup flow (simulator)**
+
+Set `PAYMENT_MODE=simulator` in `.env.local`. Click a topup pack. Verify balance increases.
+
+- [ ] **Step 10: Commit**
+
+```bash
+git add src/app/(dashboard)/ src/components/keys/ src/components/payments/
+git commit -m "feat: add dashboard with API key management and topup modal (simulator + Razorpay)"
+```
+
+---
+
+### Task 15: Landing Page and Final Integration
+
+**Files:**
+- Modify: `src/app/page.tsx`
+- Create: `src/app/not-found.tsx`
+- Modify: `src/app/layout.tsx`
+- Create: `scripts/rotate-keys.ts`
+- Create: `docs/setup/environment.md`
+- Create: `CHANGELOG.md`
+- Modify: `README.md`
+
+**Interfaces:**
+- Consumes: all prior tasks.
+- Produces: polished landing page, 404 page, global layout with metadata, key rotation script, setup documentation, README, and changelog.
+
+- [ ] **Step 1: Build the landing page**
+
+Replace the placeholder in `src/app/page.tsx`. Sections: Hero (headline, subheadline, "Get Started" CTA), Features grid (4 cards: Zero Cost Compute, BYOK Security, UPI Micro-Payments, AI Chat), How It Works (3 steps), Footer.
+
+- [ ] **Step 2: Update `src/app/layout.tsx`**
+
+Add metadata: title "IndicSandbox", description from spec §1. Set the viewport. Add the global Tailwind styles import.
+
+- [ ] **Step 3: Create `src/app/not-found.tsx`**
+
+Simple 404 page with a link back to `/`.
+
+- [ ] **Step 4: Implement `scripts/rotate-keys.ts`**
+
+Script that reads `ENCRYPTION_SECRET` and `ENCRYPTION_SECRET_OLD` from env. Fetches all rows from `api_keys` using service role. Decrypts each with the old secret, re-encrypts with the new secret, updates the row. Logs progress. Add `"rotate-keys": "npx tsx scripts/rotate-keys.ts"` to `package.json` scripts.
+
+- [ ] **Step 5: Write `docs/setup/environment.md`**
+
+Step-by-step guide: create Supabase project, configure Google and GitHub OAuth, create Razorpay test account, generate `ENCRYPTION_SECRET` (command: `openssl rand -hex 32`), set all env vars. Include a table mapping each env var to where the value comes from.
+
+- [ ] **Step 6: Write `CHANGELOG.md`**
+
+Document MVP v1.0 release with all feature groups from the spec.
+
+- [ ] **Step 7: Write `README.md`**
+
+Project overview, features list, tech stack, quick start (clone, install, configure env, run migrations, run dev), link to setup docs, link to spec, license placeholder.
+
+- [ ] **Step 8: Run the full test suite**
+
+Run: `npx vitest run`
+Expected: All tests pass.
+
+- [ ] **Step 9: Run the dev server and test the full flow**
+
+1. Start dev server: `npm run dev`.
+2. Navigate to `/` — landing page renders.
+3. Click "Get Started" → `/login` page.
+4. (With configured OAuth) Sign in → redirected to `/ide`.
+5. IDE loads with file tree, editor, terminal.
+6. Create a file, type code, run it → output in terminal.
+7. Open chat panel, send a message → streamed response (requires stored API key).
+8. Navigate to `/dashboard` → manage keys and topup.
+
+- [ ] **Step 10: Commit**
+
+```bash
+git add .
+git commit -m "feat: add landing page, key rotation script, setup docs, README, and changelog"
+```
+
+---
+
+### Review Focus — Tests Added to Tasks
+
+1. **Concurrent balance drain (Task 6, Step 7):** `deductHold` test verifies that the atomic UPDATE returns `success: false` when balance is insufficient.
+2. **Webhook replay (Task 10, Step 6):** Topup test verifies the `razorpay_payment_id` uniqueness constraint prevents double-credit.
+3. **Circuit breaker off-by-one (Task 7, Step 1):** Test verifies 11th request is denied.
+4. **WebContainers boot failure (Task 12, Step 7):** Manual verification — if WebContainers fail to boot, the terminal shows an error. (Automated test not feasible — requires real browser.)
+5. **IndexedDB unavailable (Task 11, Step 2):** `IndexedDBStore.load` test verifies null return when DB is empty; the component-level warning banner is verified manually.
