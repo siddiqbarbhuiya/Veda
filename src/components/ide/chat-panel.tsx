@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createBrowserClient } from "@/lib/supabase/client";
 import { useAiChat } from "@/hooks/use-ai-chat";
+import { useFileSystem } from "@/hooks/use-file-system";
 
 interface Rate {
   provider: string;
@@ -15,6 +16,7 @@ const fmt = (paise: number) => `₹${(paise / 100).toFixed(2)}`;
 
 export default function ChatPanel() {
   const { messages, sendMessage, isStreaming, estimatedCostPaise, error, stop } = useAiChat();
+  const { activeFile } = useFileSystem();
   const [rates, setRates] = useState<Rate[]>([]);
   const [selected, setSelected] = useState("");
   const [input, setInput] = useState("");
@@ -42,7 +44,7 @@ export default function ChatPanel() {
 
   const rate = rates.find((r) => `${r.provider}|${r.model}` === selected);
   // Rough pre-send estimate: ~4 chars per token, output assumed equal to input.
-  const chars = input.length + messages.reduce((n, m) => n + m.content.length, 0);
+  const chars = input.length + (activeFile?.content?.length ?? 0) + messages.reduce((n, m) => n + m.content.length, 0);
   const estTokens = Math.ceil(chars / 4);
   const preEstimate = rate
     ? Math.ceil((estTokens * (rate.input_paise_per_1k_tokens + rate.output_paise_per_1k_tokens)) / 1000)
@@ -93,6 +95,7 @@ export default function ChatPanel() {
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {
+              if (e.nativeEvent.isComposing) return;
               e.preventDefault();
               submit();
             }
