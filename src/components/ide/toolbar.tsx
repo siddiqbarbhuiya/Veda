@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import TopupModal from "@/components/payments/topup-modal";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createBrowserClient } from "@/lib/supabase/client";
@@ -11,9 +12,10 @@ export default function Toolbar({ projectName }: { projectName: string }) {
   const [balance, setBalance] = useState<number | null>(null);
   const { runtime, setRuntime } = useRuntime();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [topupOpen, setTopupOpen] = useState(false);
   const router = useRouter();
 
-  useEffect(() => {
+  const loadProfile = useCallback(() => {
     const supabase = createBrowserClient();
     supabase.auth.getUser().then(async ({ data }) => {
       const user = data.user;
@@ -27,6 +29,10 @@ export default function Toolbar({ projectName }: { projectName: string }) {
       setBalance(profile?.balance_paise ?? 0);
     });
   }, []);
+
+  useEffect(() => {
+    loadProfile();
+  }, [loadProfile]);
 
   const signOut = async () => {
     await createBrowserClient().auth.signOut();
@@ -48,9 +54,10 @@ export default function Toolbar({ projectName }: { projectName: string }) {
       </select>
       <div className="ml-auto flex items-center gap-3">
         <span data-testid="balance">{balance === null ? "..." : `₹${(balance / 100).toFixed(2)}`}</span>
-        <Link href="/ide?topup=1" className="rounded bg-emerald-600 px-2 py-0.5 text-white hover:bg-emerald-500">
+        <button onClick={() => setTopupOpen(true)} className="rounded bg-emerald-600 px-2 py-0.5 text-white hover:bg-emerald-500">
           Add Credits
-        </Link>
+        </button>
+        <TopupModal open={topupOpen} onClose={() => setTopupOpen(false)} onSuccess={loadProfile} />
         <Link href="/settings" aria-label="Settings" title="Settings">{"⚙"}</Link>
         <div className="relative">
           <button
