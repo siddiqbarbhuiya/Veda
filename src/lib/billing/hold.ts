@@ -69,6 +69,11 @@ async function changeBalance(
   throw new Error("Balance update conflicted too many times");
 }
 
+// Adds credit to the balance (wallet top-up). Uses the same compare-and-set loop.
+export async function creditBalance(userId: string, creditPaise: number): Promise<BalanceChange> {
+  return changeBalance(userId, creditPaise, false);
+}
+
 // Deducts the pre-auth hold. Returns success false when the balance is too low.
 export async function deductHold(userId: string, holdPaise: number): Promise<BalanceChange> {
   return changeBalance(userId, -holdPaise, true);
