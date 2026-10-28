@@ -50,31 +50,38 @@ export async function POST(request: Request) {
 
   const admin = createServiceRoleClient();
 
-  // Idempotency: razorpay_payment_id is UNIQUE on transactions.
-  const { data: existing } = await admin
+  // Insert first: the UNIQUE razorpay_payment_id is the gate. Only the winner credits.
+  const { data: row, error: insertError } = await admin
     .from("transactions")
-    .select("id")
-    .eq("razorpay_payment_id", paymentId)
-    .maybeSingle();
-  if (existing) {
-    return NextResponse.json({ received: true, duplicate: true });
-  }
-
-  try {
-    const { newBalance } = await creditBalance(userId, credit);
-    const { error } = await admin.from("transactions").insert({
+    .insert({
       user_id: userId,
       type: "topup",
       amount_paise: credit,
-      balance_after_paise: newBalance,
+      balance_after_paise: 0, // placeholder, updated after the credit
       description: "Wallet top-up",
       metadata: { order_id: payment?.order_id ?? null, paid_paise: payment?.amount ?? null },
       razorpay_payment_id: paymentId,
-    });
-    if (error) throw new Error(error.message);
-  } catch {
+    })
+    .select("id")
+    .single();
+  if (insertError) {
+    if (insertError.code === "23505") {
+      return NextResponse.json({ received: true }, { status: 200 });
+    }
     return NextResponse.json({ error: "Processing failed" }, { status: 500 });
   }
+
+  let newBalance: number;
+  try {
+    ({ newBalance } = await creditBalance(userId, credit));
+  } catch {
+    // Credit failed: remove the row so a Razorpay retry can succeed.
+    await admin.from("transactions").delete().eq("id", row.id);
+    return NextResponse.json({ error: "Processing failed" }, { status: 500 });
+  }
+
+  // The credit is done. A failure here only leaves the placeholder balance_after_paise.
+  await admin.from("transactions").update({ balance_after_paise: newBalance }).eq("id", row.id);
 
   return NextResponse.json({ received: true });
 }
