@@ -35,7 +35,8 @@ export class IndexedDBStore {
     try {
       const db = await this.getDb();
       await db.put(STORE_NAME, files, this.key(userId, projectName));
-    } catch {
+    } catch (err) {
+      console.error("IndexedDBStore.save failed", err);
       this.dbPromise = null;
     }
   }

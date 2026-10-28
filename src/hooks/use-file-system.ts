@@ -44,14 +44,27 @@ export function findNode(nodes: FileNode[], path: string): FileNode | null {
 function insertNode(nodes: FileNode[], node: FileNode): FileNode[] {
   const idx = node.path.lastIndexOf("/");
   if (idx === -1) return [...nodes, node];
-  const parent = node.path.slice(0, idx);
-  return nodes.map((n) =>
-    n.path === parent && n.type === "directory"
-      ? { ...n, children: [...(n.children ?? []), node] }
-      : n.children
-        ? { ...n, children: insertNode(n.children, node) }
-        : n
-  );
+  const parentPath = node.path.slice(0, idx);
+  // Create any missing parent directories automatically.
+  if (!findNode(nodes, parentPath)) {
+    const pIdx = parentPath.lastIndexOf("/");
+    const dir: FileNode = {
+      name: parentPath.slice(pIdx + 1),
+      path: parentPath,
+      type: "directory",
+      children: [],
+    };
+    return insertNode(insertNode(nodes, dir), node);
+  }
+  const add = (list: FileNode[]): FileNode[] =>
+    list.map((n) =>
+      n.path === parentPath && n.type === "directory"
+        ? { ...n, children: [...(n.children ?? []), node] }
+        : n.children
+          ? { ...n, children: add(n.children) }
+          : n
+    );
+  return add(nodes);
 }
 
 export function useFileSystemState(userId: string | null, projectName: string = DEFAULT_PROJECT_NAME) {

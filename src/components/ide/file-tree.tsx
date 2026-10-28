@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useFileSystem, type FileNode } from "@/hooks/use-file-system";
+import { useFileSystem, findNode, type FileNode } from "@/hooks/use-file-system";
 
 type Menu = { x: number; y: number; node: FileNode | null } | null;
 
@@ -59,7 +59,12 @@ export default function FileTree() {
     if (!node || node.type !== "file") return; // folder rename is not supported in the MVP
     const name = window.prompt("Rename to", node.name);
     if (!name || !name.trim() || name === node.name) return;
-    createFile(dirOf(node.path) + name.trim(), "file", node.content ?? "");
+    const newPath = dirOf(node.path) + name.trim();
+    if (findNode(files, newPath)) {
+      window.alert(`${newPath} already exists.`);
+      return;
+    }
+    createFile(newPath, "file", node.content ?? "");
     deleteFile(node.path);
   };
 
