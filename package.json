@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "vitest run"
+    "test": "vitest run",
+    "rotate-keys": "npx tsx scripts/rotate-keys.ts"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",
