@@ -13,7 +13,9 @@ import {
 import FileTree from "./file-tree";
 import EditorPanel from "./editor-panel";
 import Toolbar from "./toolbar";
-import TerminalPanel from "./terminal-panel";
+import BottomPanel from "./bottom-panel";
+import { TemplateDialog } from "./template-dialog";
+import { PackageDialog } from "./package-dialog";
 import ChatPanel from "./chat-panel";
 import { ActivityBar } from "./activity-bar";
 import { StatusBar } from "./status-bar";
@@ -23,7 +25,7 @@ import { ExportDialog } from "./export-dialog";
 import { SmallScreenNotice } from "./small-screen-notice";
 import { ResizeHandle } from "./resize-handle";
 import { RuntimeProvider, useRuntime } from "./runtime-context";
-import { emit, useRuntimeState } from "./ide-events";
+import { emit, useIdeEvent, useRuntimeState } from "./ide-events";
 import { useViewportMode } from "./use-viewport-mode";
 import { useIdeShortcuts } from "./use-ide-shortcuts";
 import { useSignOut } from "./user-menu";
@@ -110,6 +112,8 @@ function Shell({ tablet }: { tablet: boolean }) {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
+  const [templatesOpen, setTemplatesOpen] = useState(false);
+  const [packagesOpen, setPackagesOpen] = useState(false);
   const [open, setOpen] = useState({ sidebar: !tablet, chat: !tablet, terminal: true });
 
   const sidebarRef = usePanelRef();
@@ -231,6 +235,11 @@ function Shell({ tablet }: { tablet: boolean }) {
     }
   }, [tablet, sidebarRef, chatRef]);
 
+  useIdeEvent("veda:open-dialog", ({ dialog }) => {
+    if (dialog === "templates") setTemplatesOpen(true);
+    else setPackagesOpen(true);
+  });
+
   const openPalette = useCallback(() => setPaletteOpen(true), []);
   const openShortcuts = useCallback(() => setShortcutsOpen(true), []);
 
@@ -260,6 +269,8 @@ function Shell({ tablet }: { tablet: boolean }) {
     // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- full navigation is required (COOP/COEP)
     addCredits: () => window.location.assign("/dashboard?topup=1"),
     exportZip: () => setExportOpen(true),
+    newFromTemplate: () => setTemplatesOpen(true),
+    addPackage: () => setPackagesOpen(true),
     showShortcuts: openShortcuts,
     signOut,
   };
@@ -333,7 +344,7 @@ function Shell({ tablet }: { tablet: boolean }) {
                   onResize={track("terminal")}
                 >
                   <div inert={!open.terminal} className={`${frame} bg-panel`}>
-                    <TerminalPanel />
+                    <BottomPanel />
                   </div>
                 </Panel>
               </Group>
@@ -367,6 +378,8 @@ function Shell({ tablet }: { tablet: boolean }) {
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} actions={actions} />
       <ShortcutsDialog open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
       <ExportDialog open={exportOpen} onClose={() => setExportOpen(false)} />
+      <TemplateDialog open={templatesOpen} onClose={() => setTemplatesOpen(false)} />
+      <PackageDialog open={packagesOpen} onClose={() => setPackagesOpen(false)} />
       {signOutError ? (
         <p
           role="alert"

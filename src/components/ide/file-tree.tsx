@@ -1,14 +1,14 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
-import { ChevronRight, FilePlus, FolderPlus } from "lucide-react";
+import { ChevronRight, FilePlus, FolderPlus, LayoutTemplate } from "lucide-react";
 import { useFileSystem, findNode, type FileNode } from "@/hooks/use-file-system";
 import { validateName, validateNewPath } from "@/lib/files/validate-name";
 import { isRuntimePath } from "@/lib/files/runtime-view";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { cn } from "@/lib/cn";
-import { useIdeEvent } from "./ide-events";
+import { emit, useIdeEvent } from "./ide-events";
 import { FileIcon } from "./file-icon";
 import { FILE_OPENED_EVENT } from "./editor-tabs";
 import { INDENT, InlineNameInput, ROW_PAD, TreeContextMenu, type MenuState } from "./file-tree-parts";
@@ -38,7 +38,7 @@ function countFiles(n: FileNode): number {
 const baseDir = (n: FileNode | null) => (!n ? "" : n.type === "directory" ? n.path + "/" : dirOf(n.path));
 
 export default function FileTree() {
-  const { files, runtimeFiles, loadRuntimeDir, activeFile, openFile, createFile, deleteFile, renameNode, loaded } = useFileSystem();
+  const { files, treeFiles, loadRuntimeDir, activeFile, openFile, createFile, deleteFile, renameNode, loaded } = useFileSystem();
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
   // Read-only folders (node_modules) are closed until the user opens them.
@@ -62,10 +62,10 @@ export default function FileTree() {
         if (n.type === "directory" && isOpenDir(n)) walk(n.children ?? [], depth + 1, n.path);
       }
     };
-    walk([...files, ...runtimeFiles], 0, null);
+    walk(treeFiles, 0, null);
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [files, runtimeFiles, collapsed, expandedRO]);
+  }, [treeFiles, collapsed, expandedRO]);
 
   const activePath = activeFile?.path ?? null;
   const rovingPath = visible.some((r) => r.node.path === focused)
@@ -304,6 +304,9 @@ export default function FileTree() {
           </Button>
           <Button variant="ghost" size="icon-sm" className={iconBtn} aria-label="New folder" title="New folder" disabled={!loaded} onClick={() => startNew("new-folder", newBase())}>
             <FolderPlus size={16} aria-hidden="true" />
+          </Button>
+          <Button variant="ghost" size="icon-sm" className={iconBtn} aria-label="New project from a template" title="New project from a template" disabled={!loaded} onClick={() => emit("veda:open-dialog", { dialog: "templates" })}>
+            <LayoutTemplate size={16} aria-hidden="true" />
           </Button>
         </div>
       </div>

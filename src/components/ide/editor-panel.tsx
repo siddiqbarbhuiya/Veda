@@ -74,7 +74,7 @@ function Breadcrumbs({ path, readOnly }: { path: string; readOnly: boolean }) {
 }
 
 export default function EditorPanel() {
-  const { files, runtimeFiles, activeFile, openTabs, openFile, closeTab, updateFileContent, flushNow } = useFileSystem();
+  const { treeFiles, activeFile, openTabs, openFile, closeTab, updateFileContent, flushNow } = useFileSystem();
   const theme = useTheme();
   const monacoRef = useRef<Monaco | null>(null);
   const editorRef = useRef<Parameters<OnMount>[0] | null>(null);
@@ -101,7 +101,7 @@ export default function EditorPanel() {
   }, [openTabs]);
 
   const showEmpty = !activeFile || activeFile.type !== "file";
-  const tabs = openTabs.filter((p) => findNode(files, p) ?? findNode(runtimeFiles, p)).map((p) => ({ path: p, name: nameOf(p) }));
+  const tabs = openTabs.filter((p) => findNode(treeFiles, p)).map((p) => ({ path: p, name: nameOf(p) }));
   const activePath = showEmpty ? null : activeFile.path;
 
   return (

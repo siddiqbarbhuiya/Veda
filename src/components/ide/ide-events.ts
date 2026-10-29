@@ -12,7 +12,18 @@ export const IDE_EVENTS = {
   newFile: "veda:new-file",
   balanceChanged: "veda:balance-changed",
   saved: "veda:saved",
+  runCommands: "veda:run-commands",
+  openDialog: "veda:open-dialog",
 } as const;
+
+/** Run commands one after the other in the Node runtime. The terminal panel listens. */
+export type RunCommandsDetail = {
+  /** Folder in the project. "" is the root. */
+  cwd: string;
+  commands: Array<{ cmd: string; args: string[] }>;
+  /** True when the last command starts a web server that keeps running. */
+  serves?: boolean;
+};
 
 export type RuntimeStatus = "idle" | "booting" | "running" | "error";
 
@@ -28,6 +39,9 @@ export type IdeEventMap = {
   "veda:balance-changed": undefined;
   /** The user saved with Ctrl/Cmd+S. The status bar shows "Saved" for a short time. */
   "veda:saved": undefined;
+  "veda:run-commands": RunCommandsDetail;
+  /** Ask the IDE shell to open a dialog. */
+  "veda:open-dialog": { dialog: "templates" | "packages" };
 };
 
 export type IdeEventName = keyof IdeEventMap;

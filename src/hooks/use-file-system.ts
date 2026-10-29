@@ -7,9 +7,11 @@ import { chooseSource, describeSync, type Snapshot } from "@/lib/persistence/syn
 import { sanitizeTree, validateName } from "@/lib/files/validate-name";
 import { applyIncomingToTree, type Incoming } from "@/lib/files/runtime-sync";
 import {
-  RUNTIME_ROOT,
+  RUNTIME_DIR,
+  attachRuntime,
   buildRuntimeTree,
   isRuntimePath,
+  runtimeRootOf,
   viewText,
   type RuntimeEntry,
 } from "@/lib/files/runtime-view";
@@ -198,9 +200,9 @@ export function useFileSystemState(userId: string | null, projectName: string = 
   useEffect(() => {
     runtimeDirsRef.current = runtimeDirs;
   }, [runtimeDirs]);
-  const runtimeFiles = useMemo(
-    // A node_modules folder that the user made in the project hides the read-only one.
-    () => (files.some((n) => n.path === RUNTIME_ROOT) ? [] : buildRuntimeTree(runtimeDirs, runtimeText)),
+  // The project tree with the read-only node_modules folders inside their parent folders.
+  const treeFiles = useMemo(
+    () => attachRuntime(files, buildRuntimeTree(runtimeDirs, runtimeText)),
     [files, runtimeDirs, runtimeText]
   );
 
@@ -493,17 +495,24 @@ export function useFileSystemState(userId: string | null, projectName: string = 
 
   /** Read node_modules again: the root, every folder that is already listed, and the open files. */
   const refreshRuntime = useCallback(async () => {
-    const root = await listRuntime("");
-    if (root === null) return;
-    if (!root.some((e) => e.isDir && e.name === RUNTIME_ROOT)) {
-      setRuntimeDirs((prev) => (Object.keys(prev).length ? {} : prev));
-      setRuntimeText((prev) => (Object.keys(prev).length ? {} : prev));
-      setNav((n) => removeFromNav(n, isRuntimePath));
-      return;
+    const rootList = await listRuntime("");
+    if (rootList === null) return;
+    // node_modules can be in the project root or in a top-level project folder.
+    const folders = ["", ...filesRef.current.filter((n) => n.type === "directory").map((n) => n.path)];
+    const found: string[] = [];
+    for (const f of folders) {
+      const list = f === "" ? rootList : await listRuntime(f);
+      if (list?.some((e) => e.isDir && e.name === RUNTIME_DIR)) found.push(runtimeRootOf(f));
     }
-    const keys = [RUNTIME_ROOT, ...Object.keys(runtimeDirsRef.current).filter((k) => k !== RUNTIME_ROOT)].slice(0, 100);
+    const inFound = (k: string) => found.some((r) => k === r || k.startsWith(`${r}/`));
+    setNav((n) => removeFromNav(n, (p) => isRuntimePath(p) && !inFound(p)));
+    setRuntimeText((prev) => {
+      const keep = Object.fromEntries(Object.entries(prev).filter(([k]) => inFound(k)));
+      return Object.keys(keep).length === Object.keys(prev).length ? prev : keep;
+    });
+    const listed = Object.keys(runtimeDirsRef.current).filter((k) => inFound(k) && !found.includes(k));
     const next: Record<string, RuntimeEntry[]> = {};
-    for (const k of keys) {
+    for (const k of [...found, ...listed].slice(0, 100)) {
       const list = await listRuntime(k);
       if (list) next[k] = list;
     }
@@ -567,7 +576,7 @@ export function useFileSystemState(userId: string | null, projectName: string = 
   }, [edited]);
 
   const activePath = nav.active;
-  const activeFile = activePath ? (findNode(files, activePath) ?? findNode(runtimeFiles, activePath)) : null;
+  const activeFile = activePath ? (findNode(treeFiles, activePath)) : null;
 
   return {
     files,
@@ -581,7 +590,7 @@ export function useFileSystemState(userId: string | null, projectName: string = 
     renameNode,
     updateFileContent,
     applyRuntimeChanges,
-    runtimeFiles,
+    treeFiles,
     loadRuntimeDir,
     refreshRuntime,
     saveAll,

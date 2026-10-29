@@ -10,6 +10,8 @@ import {
   FileText,
   Keyboard,
   LayoutDashboard,
+  LayoutTemplate,
+  Package,
   LogOut,
   MessageSquare,
   PanelLeft,
@@ -39,6 +41,8 @@ export type PaletteActions = {
   exportZip: () => void;
   showShortcuts: () => void;
   signOut: () => void;
+  newFromTemplate?: () => void;
+  addPackage?: () => void;
   saveNow?: () => void;
   stopRun?: () => void;
 };
@@ -93,6 +97,8 @@ export function CommandPalette({
     ...(actions.stopRun ? [{ id: "stop", label: "Stop run", icon: <Square size={16} />, words: ["kill", "cancel", "terminate"], run: actions.stopRun }] : []),
     ...(actions.saveNow ? [{ id: "save", label: "Save now", icon: <Save size={16} />, keys: ["Ctrl", "S"], words: ["write", "sync", "cloud"], run: actions.saveNow }] : []),
     { id: "new", label: "New file", icon: <FilePlus size={16} />, keys: ["Alt", "N"], run: actions.newFile },
+    ...(actions.newFromTemplate ? [{ id: "template", label: "New project from template", icon: <LayoutTemplate size={16} />, words: ["starter", "react", "vite", "express", "python", "create"], run: actions.newFromTemplate }] : []),
+    ...(actions.addPackage ? [{ id: "package", label: "Add npm package", icon: <Package size={16} />, words: ["install", "npm", "dependency", "library"], run: actions.addPackage }] : []),
     { id: "export", label: "Export project as ZIP", icon: <Download size={16} />, words: ["download", "zip", "backup"], run: actions.exportZip },
     { id: "sidebar", label: "Toggle sidebar", icon: <PanelLeft size={16} />, keys: ["Ctrl", "B"], run: actions.toggleSidebar },
     { id: "terminal", label: "Toggle terminal", icon: <PanelBottom size={16} />, keys: ["Ctrl", "J"], run: actions.toggleTerminal },

@@ -3,16 +3,17 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
-import { AlertCircle, Eraser, Loader2, Play, Square, X } from "lucide-react";
-import { useFileSystem, type FileNode } from "@/hooks/use-file-system";
+import { AlertCircle, Eraser, Loader2, Package, Play, Square, X } from "lucide-react";
+import { findNode, useFileSystem, type FileNode } from "@/hooks/use-file-system";
 import { useWebContainer, isIsolationError, type RunningCommand } from "@/hooks/use-webcontainer";
 import { usePyodide, PYODIDE_DOWNLOAD_ERROR } from "@/hooks/use-pyodide";
 import { nodePath, runtimeForFile, type RunKind } from "@/hooks/run-helpers";
-import { packageJsonHasDeps, RUNTIME_ROOT } from "@/lib/files/runtime-view";
+import { packageJsonHasDeps, RUNTIME_DIR } from "@/lib/files/runtime-view";
+import { packageFolders } from "@/lib/templates/packages";
 import { useTheme } from "@/components/ui/theme";
 import { Button } from "@/components/ui/button";
 import { useRuntime } from "./runtime-context";
-import { emit, useIdeEvent } from "./ide-events";
+import { emit, useIdeEvent, type RunCommandsDetail } from "./ide-events";
 import { buildXtermTheme, terminalFontFamily } from "./xterm-theme";
 
 const BOOT_LABEL = "Booting Node.js runtime...";
@@ -23,15 +24,18 @@ const PY_LOADING_LABEL = "Loading Python (about 10 s on first run)...";
 type PanelError = { message: string; kind: "isolation" | "boot" | "python-load" | "run" };
 type Busy = Record<RunKind, string | null>;
 
-function findPackageJson(nodes: FileNode[]): string | undefined {
-  return nodes.find((n) => n.type === "file" && n.path === "package.json")?.content;
+/** The project folders whose package.json lists packages. "" is the project root. */
+function foldersWithDeps(nodes: FileNode[]): string[] {
+  return packageFolders(nodes).filter((f) =>
+    packageJsonHasDeps(findNode(nodes, f ? `${f}/package.json` : "package.json")?.content)
+  );
 }
 
 function dim(term: Terminal, text: string) {
   term.writeln(`\x1b[90m${text}\x1b[0m`);
 }
 
-export default function TerminalPanel() {
+export default function TerminalPanel({ tabs }: { tabs?: React.ReactNode }) {
   const { files, activeFile, loaded, applyRuntimeChanges, refreshRuntime } = useFileSystem();
   const { runtime, setRuntime } = useRuntime();
   const wc = useWebContainer();
@@ -168,32 +172,29 @@ export default function TerminalPanel() {
   useEffect(() => {
     if (!loaded || !shellUp || runtime !== "node" || autoInstalled.current) return;
     if (busy.node || busy.python) return;
-    const pkg = findPackageJson(latest.current.files);
-    if (!packageJsonHasDeps(pkg)) {
-      autoInstalled.current = true;
+    const folders = foldersWithDeps(latest.current.files);
+    autoInstalled.current = true;
+    if (folders.length === 0) {
       void latest.current.refreshRuntime();
       return;
     }
-    autoInstalled.current = true;
     const term = termRef.current;
     if (!term) return;
     (async () => {
       try {
         await wc.writeFiles(latest.current.files);
         const wcInst = await wc.boot();
-        const hasModules = (await wcInst.fs.readdir("/", { withFileTypes: true })).some(
-          (e) => e.isDirectory() && e.name === RUNTIME_ROOT
-        );
-        if (hasModules) {
-          await latest.current.refreshRuntime();
-          return;
+        for (const folder of folders) {
+          const entries = await wcInst.fs.readdir(folder ? `/${folder}` : "/", { withFileTypes: true });
+          if (entries.some((e) => e.isDirectory() && e.name === RUNTIME_DIR)) continue;
+          setBusyFor("node", INSTALL_LABEL);
+          dim(term, `$ npm install (restoring your packages${folder ? ` in ${folder}` : ""})`);
+          const cmd = await wc.runCommand("npm", ["install"], { cwd: folder });
+          procRef.current = cmd;
+          const code = await cmd.exit;
+          dim(term, code === 0 ? "packages installed" : `npm install failed with code ${code}. Run it again in the terminal.`);
+          if (code !== 0) break;
         }
-        setBusyFor("node", INSTALL_LABEL);
-        dim(term, "$ npm install (restoring your packages)");
-        const cmd = await wc.runCommand("npm", ["install"]);
-        procRef.current = cmd;
-        const code = await cmd.exit;
-        dim(term, code === 0 ? "packages installed" : `npm install failed with code ${code}. Run it again in the terminal.`);
         await pullRuntime();
       } catch (e) {
         dim(term, `Could not install packages: ${e instanceof Error ? e.message : String(e)}`);
@@ -277,6 +278,47 @@ export default function TerminalPanel() {
     procRef.current?.kill();
   }, []);
 
+  /** Run commands one after the other in a project folder (templates and package install). */
+  const runCommands = useCallback(
+    async (detail: RunCommandsDetail) => {
+      const term = termRef.current;
+      if (!term) return;
+      setHasOutput(true);
+      if (busyRef.current.node || busyRef.current.python) {
+        dim(term, "The runtime is busy. Wait for it, or press Stop.");
+        return;
+      }
+      if (latest.current.runtime !== "node") setRuntime("node");
+      setError(null);
+      try {
+        await wc.writeFiles(latest.current.files);
+        nodeReady.current = true;
+        for (let i = 0; i < detail.commands.length; i++) {
+          const { cmd, args } = detail.commands[i];
+          const last = i === detail.commands.length - 1;
+          setBusyFor("node", detail.serves && last ? RUNNING_LABEL : INSTALL_LABEL);
+          dim(term, `$ ${[cmd, ...args].join(" ")}${detail.cwd ? `   (in ${detail.cwd})` : ""}`);
+          const proc = await wc.runCommand(cmd, args, { cwd: detail.cwd, background: detail.serves === true && last });
+          procRef.current = proc;
+          const code = await proc.exit;
+          dim(term, `exited with code ${code}`);
+          if (code !== 0) break;
+          await pullRuntime();
+        }
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        if (isIsolationError(e)) setError({ message: msg, kind: "isolation" });
+        else setError({ message: `Node.js runtime failed: ${msg}`, kind: "run" });
+      } finally {
+        procRef.current = null;
+        setBusyFor("node", null);
+        await pullRuntime();
+      }
+    },
+    [wc, setRuntime, setBusyFor, pullRuntime]
+  );
+  useIdeEvent("veda:run-commands", (detail) => void runCommands(detail));
+
   // Shell -> terminal: same as the Run button.
   useIdeEvent("veda:run", () => {
     void run();
@@ -298,7 +340,7 @@ export default function TerminalPanel() {
   return (
     <div id="terminal-panel" data-panel="terminal" className="flex h-full min-h-0 w-full flex-col bg-panel">
       <div className="flex h-9 shrink-0 items-center gap-2 border-b border-line bg-elevated pl-3 pr-2">
-        <h2 className="flex h-full items-center border-b-2 border-accent text-ui font-medium text-fg">Terminal</h2>
+        {tabs ?? <h2 className="flex h-full items-center border-b-2 border-accent text-ui font-medium text-fg">Terminal</h2>}
         <span className="text-caption text-fg-3">{runtime === "node" ? "Node.js" : "Python"}</span>
         {busyLabel && (
           <span role="status" className="flex min-w-0 items-center gap-1.5 text-caption text-warning">
@@ -307,6 +349,9 @@ export default function TerminalPanel() {
           </span>
         )}
         <div className="ml-auto flex items-center gap-2">
+          <Button variant="ghost" size="sm" leadingIcon={<Package size={14} aria-hidden="true" />} onClick={() => emit("veda:open-dialog", { dialog: "packages" })}>
+            Packages
+          </Button>
           <Button variant="ghost" size="sm" leadingIcon={<Eraser size={14} aria-hidden="true" />} onClick={() => termRef.current?.clear()}>
             Clear
           </Button>

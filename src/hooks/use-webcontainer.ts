@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useSyncExternalStore } from "react";
 import type { IDisposable, Terminal } from "@xterm/xterm";
 import type { WebContainer, FileSystemTree, WebContainerProcess } from "@webcontainer/api";
 import type { FileNode } from "@/lib/persistence/indexeddb";
@@ -114,6 +114,41 @@ export async function peekWebContainer(): Promise<WebContainer | null> {
   }
 }
 
+export type RunningServer = { port: number; url: string };
+
+// Web servers that the runtime started (for the Preview tab). `servers` is replaced, never changed in place.
+let servers: RunningServer[] = [];
+const serverSubscribers = new Set<() => void>();
+
+function emitServers(next: RunningServer[]) {
+  servers = next;
+  serverSubscribers.forEach((cb) => cb());
+}
+
+function setServer(server: RunningServer) {
+  emitServers([...servers.filter((s) => s.port !== server.port), server]);
+}
+
+function removeServer(port: number) {
+  if (servers.some((s) => s.port === port)) emitServers(servers.filter((s) => s.port !== port));
+}
+
+const NO_SERVERS: RunningServer[] = [];
+
+/** The web servers that the Node runtime has started. The list changes when a server starts or stops. */
+export function useRunningServers(): RunningServer[] {
+  return useSyncExternalStore(
+    (cb) => {
+      serverSubscribers.add(cb);
+      return () => {
+        serverSubscribers.delete(cb);
+      };
+    },
+    () => servers,
+    () => NO_SERVERS
+  );
+}
+
 async function boot(): Promise<WebContainer> {
   if (typeof window !== "undefined" && !window.crossOriginIsolated) {
     throw new Error(ISOLATION_MESSAGE);
@@ -121,6 +156,13 @@ async function boot(): Promise<WebContainer> {
   if (!bootPromise) {
     bootPromise = import("@webcontainer/api")
       .then(({ WebContainer }) => WebContainer.boot())
+      .then((wc) => {
+        wc.on("server-ready", (port, url) => setServer({ port, url }));
+        wc.on("port", (port, type) => {
+          if (type === "close") removeServer(port);
+        });
+        return wc;
+      })
       .catch((err) => {
         bootPromise = null;
         throw err;
@@ -233,9 +275,17 @@ function onRuntimeChange(cb: () => void): () => void {
   };
 }
 
-async function runCommand(cmd: string, args: string[] = []): Promise<RunningCommand> {
+/**
+ * Start a command. `cwd` is a folder in the project ("" is the project root).
+ * A `background` command (a dev server) does not take the keyboard, so the shell stays usable.
+ */
+async function runCommand(
+  cmd: string,
+  args: string[] = [],
+  opts: { cwd?: string; background?: boolean } = {}
+): Promise<RunningCommand> {
   const wc = await boot();
-  const proc = await wc.spawn(cmd, args);
+  const proc = await wc.spawn(cmd, args, opts.cwd ? { cwd: opts.cwd } : undefined);
   const pipe = proc.output
     .pipeTo(
       new WritableStream({
@@ -274,8 +324,10 @@ async function runCommand(cmd: string, args: string[] = []): Promise<RunningComm
       void writer.write(data).catch(() => undefined);
     },
   };
-  current = cmdHandle;
-  lineBuffer = "";
+  if (!opts.background) {
+    current = cmdHandle;
+    lineBuffer = "";
+  }
   return cmdHandle;
 }
 
