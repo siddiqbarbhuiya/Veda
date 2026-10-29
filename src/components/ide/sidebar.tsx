@@ -46,14 +46,14 @@ function Section({
           aria-expanded={open}
           aria-controls={bodyId}
           onClick={onToggle}
-          className="flex h-7 w-full items-center gap-1 px-1.5 text-left text-overline font-semibold uppercase tracking-[0.08em] text-fg-2 hover:bg-fg/[0.06] hover:text-fg focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
+          className="flex h-5 w-full items-center gap-0.5 px-1 text-left text-[9px] font-semibold uppercase tracking-[0.08em] text-fg-2 hover:bg-fg/[0.06] hover:text-fg focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
         >
-          <ChevronRight size={14} aria-hidden="true" className={cn("shrink-0 transition-transform duration-120", open && "rotate-90")} />
+          <ChevronRight size={11} aria-hidden="true" className={cn("shrink-0 transition-transform duration-120", open && "rotate-90")} />
           {title}
         </button>
       </h2>
       {/* The body stays mounted when it is closed, so a search or an install in progress is not lost. */}
-      <div id={bodyId} hidden={!open} className="max-h-[55dvh] min-h-0 overflow-y-auto">
+      <div id={bodyId} hidden={!open} className="max-h-[50dvh] min-h-0 overflow-y-auto">
         {children}
       </div>
     </section>

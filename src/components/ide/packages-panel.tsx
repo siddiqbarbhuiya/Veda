@@ -1,10 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { CheckCircle2, Loader2, Package, Trash2 } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Select } from "@/components/ui/field";
+import { Check, Loader2, Trash2, X } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { findNode, useFileSystem } from "@/hooks/use-file-system";
 import { usePackageSearch } from "@/hooks/use-package-search";
@@ -91,20 +88,20 @@ export function PackagesPanel({ focusToken }: { focusToken: number }) {
           meta: `v${r.version}`,
           subtitle: r.description,
           badge: isNpmInstalled(installedNpm, r.name)
-            ? { label: "Installed", tone: "success" }
+            ? { label: "added", tone: "success" }
             : r.weekly
-              ? { label: formatDownloads(r.weekly), tone: "neutral" }
+              ? { label: formatDownloads(r.weekly).replace("/week", ""), tone: "neutral" }
               : undefined,
         }))
       : pip.results.map((r) => ({
           id: `${r.source}:${r.name}`,
           title: r.name,
           meta: r.version ? `v${r.version}` : undefined,
-          subtitle: r.source === "built-in" ? "Ships with Python in the browser. Installs fast." : r.summary,
+          subtitle: r.source === "built-in" ? "Built in. Installs fast." : r.summary,
           badge: pipNames.has(requirementName(r.name))
-            ? { label: "Installed", tone: "success" }
+            ? { label: "added", tone: "success" }
             : r.source === "built-in"
-              ? { label: "Built in", tone: "accent" }
+              ? { label: "built-in", tone: "accent" }
               : { label: "PyPI", tone: "neutral" },
         }));
   const search = kind === "npm" ? npm : pip;
@@ -175,7 +172,7 @@ export function PackagesPanel({ focusToken }: { focusToken: number }) {
         setTypedError(null);
       }}
       className={cn(
-        "h-7 flex-1 rounded px-2 text-caption font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
+        "h-4 flex-1 rounded-sm text-[10px] font-medium leading-none transition-colors focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring",
         kind === value ? "bg-accent-subtle text-fg" : "text-fg-3 hover:text-fg"
       )}
     >
@@ -188,26 +185,29 @@ export function PackagesPanel({ focusToken }: { focusToken: number }) {
       ? installedNpm.map((p) => ({ key: p.name, name: p.name, version: p.version, dev: p.dev, remove: () => removeNpm(p.name) }))
       : installedPip.map((spec) => ({ key: spec, name: spec, version: "", dev: false, remove: () => removePip(spec) }));
 
+  const check = "size-2.5 accent-[var(--accent)]";
+
   return (
-    <div className="space-y-3 px-3 pb-3 pt-1">
-      <div role="radiogroup" aria-label="Package manager" className="flex gap-1 rounded-md border border-line-strong bg-sunken p-0.5">
-        {tab("npm", "npm (Node.js)")}
-        {tab("pip", "pip (Python)")}
+    <div className="space-y-1.5 px-2 pb-1.5 pt-0.5 text-[10px] text-fg-2">
+      <div role="radiogroup" aria-label="Package manager" className="flex gap-0.5 rounded border border-line-strong bg-sunken p-px">
+        {tab("npm", "npm")}
+        {tab("pip", "pip")}
       </div>
 
       {kind === "npm" && options.length > 1 ? (
-        <div className="space-y-1">
-          <label htmlFor="pkg-folder" className="text-caption font-medium text-fg-2">
-            Install in
-          </label>
-          <Select id="pkg-folder" value={folder} onChange={(e) => setFolderPick(e.target.value)}>
-            {options.map((f) => (
-              <option key={f || "root"} value={f}>
-                {f ? `${f}/` : "Project root"}
-              </option>
-            ))}
-          </Select>
-        </div>
+        <select
+          aria-label="Install in"
+          title="Install in"
+          value={folder}
+          onChange={(e) => setFolderPick(e.target.value)}
+          className="h-5 w-full rounded border border-control bg-sunken px-1 text-[10px] text-fg"
+        >
+          {options.map((f) => (
+            <option key={f || "root"} value={f}>
+              {f ? `${f}/` : "root"}
+            </option>
+          ))}
+        </select>
       ) : null}
 
       <PackageCombobox
@@ -220,95 +220,83 @@ export function PackagesPanel({ focusToken }: { focusToken: number }) {
         options={comboOptions}
         loading={search.loading}
         error={typedError ?? search.error}
-        placeholder={kind === "pip" ? "requests, numpy..." : "react, lodash..."}
-        emptyText={
-          kind === "pip" ? "No match. Press Enter to try the exact name on PyPI." : "No package found. Press Enter to install the exact name."
-        }
+        placeholder={kind === "pip" ? "Search pip" : "Search npm"}
+        emptyText="No match. Enter = exact name."
         onPick={(o) => install(kind === "pip" ? o.title : o.id)}
         onSubmit={submitTyped}
         inputRef={inputRef}
       />
 
-      {kind === "npm" ? (
-        <label className="flex items-center gap-2 text-caption text-fg-2">
-          <input type="checkbox" className="size-3.5 accent-[var(--accent)]" checked={dev} onChange={(e) => setDev(e.target.checked)} />
-          Dev dependency (<code>--save-dev</code>)
-        </label>
-      ) : (
-        <>
-          <label className="flex items-start gap-2 text-caption text-fg-2">
-            <input type="checkbox" className="mt-0.5 size-3.5 accent-[var(--accent)]" checked={save} onChange={(e) => setSave(e.target.checked)} />
-            <span>
-              Add to <code>requirements.txt</code> (installed again after a reload)
-            </span>
+      <div className="flex items-center gap-2">
+        {kind === "npm" ? (
+          <label className="flex items-center gap-1" title="Install as a dev dependency (--save-dev)">
+            <input type="checkbox" className={check} checked={dev} onChange={(e) => setDev(e.target.checked)} />
+            dev
           </label>
-          <p className="text-caption text-fg-3">
-            Pure Python packages and the packages that Pyodide ships (numpy, pandas, and more) work. Packages that need native code do not.
-          </p>
-        </>
-      )}
-
-      {kind === "npm" && !folders.includes(folder) ? (
-        <p className="text-caption text-fg-3">
-          There is no package.json here. Veda runs <code>npm init -y</code> first.
-        </p>
-      ) : null}
-
-      {typedOk ? (
-        <Button type="button" variant="primary" size="sm" className="w-full" leadingIcon={<Package size={14} aria-hidden="true" />} onClick={submitTyped}>
-          <span className="truncate">Install {typedSpec}</span>
-        </Button>
-      ) : null}
+        ) : (
+          <label className="flex items-center gap-1" title="Add to requirements.txt, installed again after a reload">
+            <input type="checkbox" className={check} checked={save} onChange={(e) => setSave(e.target.checked)} />
+            save to requirements.txt
+          </label>
+        )}
+        {typedOk ? (
+          <button
+            type="button"
+            onClick={submitTyped}
+            title={`Install ${typedSpec}`}
+            className="ml-auto h-4 max-w-[60%] truncate rounded bg-accent px-1.5 text-[10px] font-medium leading-none text-white hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring"
+          >
+            Install {typedSpec}
+          </button>
+        ) : null}
+      </div>
 
       {pending ? (
         <p
           role="status"
-          className={cn("flex items-start gap-2 rounded-md px-2.5 py-2 text-caption", pending.failed ? "bg-danger-subtle text-danger" : "bg-sunken text-fg-2")}
+          className={cn("flex items-start gap-1 rounded px-1.5 py-1 leading-tight", pending.failed ? "bg-danger-subtle text-danger" : "bg-sunken text-fg-2")}
         >
-          {pending.done ? (
-            <CheckCircle2 size={14} className={cn("mt-0.5 shrink-0", pending.failed ? "text-danger" : "text-success")} aria-hidden="true" />
+          {pending.failed ? (
+            <X size={10} className="mt-px shrink-0" aria-hidden="true" />
+          ) : pending.done ? (
+            <Check size={10} className="mt-px shrink-0 text-success" aria-hidden="true" />
           ) : (
-            <Loader2 size={14} className="mt-0.5 shrink-0 animate-spin" aria-hidden="true" />
+            <Loader2 size={10} className="mt-px shrink-0 animate-spin" aria-hidden="true" />
           )}
           <span className="wrap-anywhere">
-            {pending.done && !pending.text.startsWith("Removed")
-              ? pending.failed
-                ? `${pending.text} did not finish. See the terminal.`
-                : `${pending.text.replace(/^Installing/, "Installed").replace(/^Removing/, "Removed")}.`
-              : pending.text.startsWith("Removed")
-                ? pending.text
-                : `${pending.text}... The output is in the terminal.`}
+            {pending.failed
+              ? `${pending.text.replace(/^Installing/, "Failed:").replace(/^Removing/, "Failed:")}. See terminal.`
+              : pending.done
+                ? pending.text.startsWith("Removed")
+                  ? pending.text.replace(" It stays loaded until you reload the page.", "")
+                  : pending.text.replace(/^Installing/, "Installed").replace(/^Removing/, "Removed")
+                : `${pending.text}...`}
           </span>
         </p>
       ) : null}
 
       <section aria-label="Installed packages">
-        <h3 className="mb-1 flex items-center gap-2 text-caption font-medium text-fg-2">
-          Installed
-          <span className="truncate font-normal text-fg-3">
-            {kind === "npm" ? (folders.includes(folder) ? `in ${folder ? `${folder}/` : ""}package.json` : "no package.json yet") : "in requirements.txt"}
-          </span>
+        <h3 className="mb-0.5 text-[9px] font-semibold uppercase tracking-wide text-fg-3">
+          Installed{installedRows.length > 0 ? ` (${installedRows.length})` : ""}
         </h3>
         {installedRows.length === 0 ? (
-          <p className="rounded-md border border-dashed border-line-strong px-2.5 py-2 text-caption text-fg-3">No packages listed yet.</p>
+          <p className="text-[10px] text-fg-3">{kind === "npm" && !folders.includes(folder) ? "No package.json yet." : "None."}</p>
         ) : (
-          <ul className="max-h-48 divide-y divide-line overflow-y-auto rounded-md border border-line-strong">
+          <ul className="max-h-40 divide-y divide-line overflow-y-auto rounded border border-line-strong">
             {installedRows.map((row) => (
-              <li key={row.key} className="flex items-center gap-1.5 py-0.5 pl-2.5 pr-1">
-                <span className="min-w-0 truncate text-ui text-fg">{row.name}</span>
-                {row.version ? <span className="shrink-0 text-caption text-fg-3">{row.version}</span> : null}
-                {row.dev ? <Badge tone="neutral">dev</Badge> : null}
-                <Button
+              <li key={row.key} className="flex items-center gap-1 py-px pl-1.5 pr-0.5">
+                <span className="min-w-0 truncate text-[11px] text-fg">{row.name}</span>
+                {row.version ? <span className="shrink-0 text-[9px] text-fg-3">{row.version}</span> : null}
+                {row.dev ? <span className="shrink-0 rounded bg-fg/[0.08] px-1 text-[9px] leading-[13px] text-fg-3">dev</span> : null}
+                <button
                   type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  className="ml-auto shrink-0"
+                  className="ml-auto flex size-4 shrink-0 items-center justify-center rounded text-fg-3 hover:bg-fg/[0.08] hover:text-danger focus-visible:outline-2 focus-visible:outline-ring"
                   aria-label={`Remove ${row.name}`}
                   title={`Remove ${row.name}`}
                   onClick={row.remove}
                 >
-                  <Trash2 size={14} aria-hidden="true" />
-                </Button>
+                  <Trash2 size={10} aria-hidden="true" />
+                </button>
               </li>
             ))}
           </ul>

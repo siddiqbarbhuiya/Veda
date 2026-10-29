@@ -2,8 +2,7 @@
 
 import { useEffect, useId, useRef, useState } from "react";
 import { Loader2, Search } from "lucide-react";
-import { Badge, type BadgeTone } from "@/components/ui/badge";
-import { controlClass } from "@/components/ui/field";
+import type { BadgeTone } from "@/components/ui/badge";
 import { cn } from "@/lib/cn";
 
 export type ComboOption = {
@@ -14,8 +13,18 @@ export type ComboOption = {
   badge?: { label: string; tone: BadgeTone };
 };
 
+// Very small on purpose: the PACKAGES section has little room.
+const TAG: Record<BadgeTone, string> = {
+  neutral: "bg-fg/[0.08] text-fg-2",
+  accent: "bg-accent-subtle text-accent-text",
+  success: "bg-success-subtle text-success",
+  warning: "bg-warning-subtle text-warning",
+  danger: "bg-danger-subtle text-danger",
+  info: "bg-info-subtle text-info",
+};
+
 /**
- * A search box with a list of suggestions (the ARIA combobox pattern).
+ * A tiny search box with a list of suggestions (the ARIA combobox pattern).
  * Arrow keys move in the list. Enter on a suggestion picks it. Enter with no suggestion chosen submits the typed text.
  */
 export function PackageCombobox({
@@ -29,9 +38,9 @@ export function PackageCombobox({
   emptyText,
   onPick,
   onSubmit,
-  autoFocus,
   inputRef,
 }: {
+  /** The name for screen readers. It is not drawn. */
   label: string;
   value: string;
   onChange: (value: string) => void;
@@ -43,7 +52,6 @@ export function PackageCombobox({
   emptyText?: string;
   onPick: (option: ComboOption) => void;
   onSubmit: () => void;
-  autoFocus?: boolean;
   inputRef?: React.Ref<HTMLInputElement>;
 }) {
   const uid = useId();
@@ -89,15 +97,13 @@ export function PackageCombobox({
 
   return (
     <div className="relative">
-      <label htmlFor={`${uid}-input`} className="mb-1.5 block text-ui font-medium text-fg">
-        {label}
-      </label>
       <div className="relative">
-        <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-fg-3" aria-hidden="true" />
+        <Search size={11} className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-fg-3" aria-hidden="true" />
         <input
           id={`${uid}-input`}
           ref={inputRef}
           role="combobox"
+          aria-label={label}
           aria-expanded={showList}
           aria-controls={listId}
           aria-autocomplete="list"
@@ -112,19 +118,18 @@ export function PackageCombobox({
           autoComplete="off"
           autoCapitalize="none"
           spellCheck={false}
-          autoFocus={autoFocus}
-          className={cn(controlClass, "h-11 pl-9 pr-9 sm:h-9")}
+          className="h-6 w-full rounded border border-control bg-sunken pl-6 pr-6 text-[11px] text-fg placeholder:text-fg-3 hover:border-accent-text/70 focus-visible:border-accent focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-ring"
         />
-        {loading ? <Loader2 size={16} className="absolute right-3 top-1/2 -translate-y-1/2 animate-spin text-fg-3" aria-label="Searching" /> : null}
+        {loading ? <Loader2 size={11} className="absolute right-2 top-1/2 -translate-y-1/2 animate-spin text-fg-3" aria-label="Searching" /> : null}
       </div>
 
       {error ? (
-        <p role="status" className="mt-1.5 text-caption text-warning">
+        <p role="status" className="mt-1 text-[10px] leading-tight text-warning">
           {error}
         </p>
       ) : null}
       {showEmpty ? (
-        <p role="status" className="mt-1.5 text-caption text-fg-3">
+        <p role="status" className="mt-1 text-[10px] leading-tight text-fg-3">
           {emptyText}
         </p>
       ) : null}
@@ -135,7 +140,7 @@ export function PackageCombobox({
           id={listId}
           role="listbox"
           aria-label={`${label} suggestions`}
-          className="mt-1.5 max-h-72 divide-y divide-line overflow-y-auto rounded-lg border border-line-strong bg-sunken"
+          className="mt-1 max-h-52 divide-y divide-line overflow-y-auto rounded border border-line-strong bg-sunken"
         >
           {options.map((o, i) => (
             <li
@@ -150,16 +155,16 @@ export function PackageCombobox({
                 onPick(o);
               }}
               onMouseMove={() => setActive(i)}
-              className={cn("cursor-pointer px-3 py-2", i === active ? "bg-accent-subtle" : "hover:bg-fg/[0.05]")}
+              className={cn("cursor-pointer px-2 py-1", i === active ? "bg-accent-subtle" : "hover:bg-fg/[0.05]")}
             >
-              <p className="truncate text-ui font-medium text-fg">{o.title}</p>
-              {o.meta || o.badge ? (
-                <div className="mt-0.5 flex items-center gap-2">
-                  {o.meta ? <span className="shrink-0 text-caption text-fg-3">{o.meta}</span> : null}
-                  {o.badge ? <Badge tone={o.badge.tone}>{o.badge.label}</Badge> : null}
-                </div>
-              ) : null}
-              {o.subtitle ? <p className="mt-0.5 truncate text-caption text-fg-3">{o.subtitle}</p> : null}
+              <div className="flex items-center gap-1.5">
+                <span className="min-w-0 flex-1 truncate text-[11px] font-medium text-fg">{o.title}</span>
+                {o.meta ? <span className="shrink-0 text-[10px] text-fg-3">{o.meta}</span> : null}
+                {o.badge ? (
+                  <span className={cn("shrink-0 rounded px-1 text-[9px] leading-[14px]", TAG[o.badge.tone])}>{o.badge.label}</span>
+                ) : null}
+              </div>
+              {o.subtitle ? <p className="truncate text-[10px] leading-tight text-fg-3">{o.subtitle}</p> : null}
             </li>
           ))}
         </ul>
