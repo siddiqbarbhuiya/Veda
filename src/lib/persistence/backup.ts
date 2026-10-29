@@ -46,6 +46,21 @@ export function clearBackup(userId: string, project: string): void {
   }
 }
 
+/** Remove every backup of a user. Used at sign-out. */
+export function clearAllBackups(userId: string): void {
+  try {
+    const prefix = `${PREFIX}${userId}:`;
+    const keys: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith(prefix)) keys.push(k);
+    }
+    for (const k of keys) localStorage.removeItem(k);
+  } catch {
+    /* storage is blocked */
+  }
+}
+
 /** The snapshot with the later `updatedAt`. When both are equal, `a` wins. */
 export function newestSnapshot<T extends { updatedAt: number }>(a: T | null, b: T | null): T | null {
   if (!a) return b;

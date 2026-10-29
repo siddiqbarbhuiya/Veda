@@ -45,3 +45,29 @@ describe("IndexedDBStore", () => {
     expect(await store.load("u3", "a")).toBeNull();
   });
 });
+
+describe("IndexedDBStore projects of a user", () => {
+  it("lists the projects of one user with their times, and not those of another user", async () => {
+    const store = new IndexedDBStore();
+    await store.save("lu1", "alpha", tree, 100);
+    await store.save("lu1", "beta", tree, 200);
+    await store.save("lu2", "other", tree, 300);
+    const list = await store.list("lu1");
+    expect(list.sort((a, b) => a.name.localeCompare(b.name))).toEqual([
+      { name: "alpha", updatedAt: 100 },
+      { name: "beta", updatedAt: 200 },
+    ]);
+    expect(await store.list("lu-nobody")).toEqual([]);
+  });
+
+  it("clears all projects of one user and keeps the others", async () => {
+    const store = new IndexedDBStore();
+    await store.save("cu1", "a", tree, 1);
+    await store.save("cu1", "b", tree, 2);
+    await store.save("cu2", "keep", tree, 3);
+    await store.clearAll("cu1");
+    expect(await store.list("cu1")).toEqual([]);
+    expect(await store.load("cu1", "a")).toBeNull();
+    expect(await store.load("cu2", "keep")).toEqual(tree);
+  });
+});

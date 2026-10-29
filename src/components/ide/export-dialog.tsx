@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { AlertTriangle, CheckCircle2, Download, HardDrive, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
-import { DEFAULT_PROJECT_NAME, useFileSystem } from "@/hooks/use-file-system";
+import { useFileSystem } from "@/hooks/use-file-system";
 import { peekWebContainer } from "@/hooks/use-webcontainer";
 import {
   collectFsEntries,
@@ -35,7 +35,7 @@ function download(bytes: Uint8Array, fileName: string) {
 }
 
 export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const { files } = useFileSystem();
+  const { files, projectName } = useFileSystem();
   const [includePackages, setIncludePackages] = useState(false);
   const [phase, setPhase] = useState<Phase>("idle");
   const [filesRead, setFilesRead] = useState(0);
@@ -94,9 +94,9 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
       // Files you edited in the editor win over the copy inside the runtime.
       const entries = mergeEntries(runtimeEntries, editorEntries);
       setPhase("zipping");
-      const zipped = await createZip(entries, DEFAULT_PROJECT_NAME);
+      const zipped = await createZip(entries, projectName);
       if (abort.current !== controller) return;
-      download(zipped, exportFileName(DEFAULT_PROJECT_NAME));
+      download(zipped, exportFileName(projectName));
       setResult({ files: countFiles(entries), bytes: totalBytes(entries), zipBytes: zipped.byteLength, runtime: wc !== null });
       setPhase("done");
     } catch (err) {

@@ -3,7 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { IndexedDBStore, type FileNode } from "@/lib/persistence/indexeddb";
 import { CloudStore } from "@/lib/persistence/cloud-store";
-import { clearBackup, newestSnapshot, readBackup, writeBackup } from "@/lib/persistence/backup";
+import { clearAllBackups, clearBackup, newestSnapshot, readBackup, writeBackup } from "@/lib/persistence/backup";
 import { chooseSource, describeSync, type Snapshot } from "@/lib/persistence/sync";
 import { sanitizeTree, validateName } from "@/lib/files/validate-name";
 import { applyIncomingToTree, type Incoming } from "@/lib/files/runtime-sync";
@@ -471,8 +471,10 @@ export function useFileSystemState(userId: string | null, projectName: string = 
     if (!userId) return;
     noSave.current = true; // stops the flush on unmount from writing the project back
     dirty.current = false;
-    await store.clear(userId, projectName);
-  }, [userId, projectName, store]);
+    // Every project of this user, not only the open one, so the next person on this computer sees nothing.
+    await store.clearAll(userId);
+    clearAllBackups(userId);
+  }, [userId, store]);
 
   const syncNow = useCallback(async () => {
     if (!cloudReady.current) await retryCloud();
@@ -604,6 +606,8 @@ export function useFileSystemState(userId: string | null, projectName: string = 
     renameNode,
     updateFileContent,
     applyRuntimeChanges,
+    userId,
+    projectName,
     treeFiles,
     loadRuntimeDir,
     refreshRuntime,

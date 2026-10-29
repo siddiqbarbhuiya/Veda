@@ -31,12 +31,14 @@ const LOW_BALANCE_PAISE = 1000;
 
 export default function Toolbar({
   projectName,
+  onOpenProjects,
   onOpenPalette,
   onOpenExport,
   onRun,
   onStop,
 }: {
   projectName: string;
+  onOpenProjects: () => void;
   onOpenPalette: () => void;
   onOpenExport: () => void;
   onRun: () => void;
@@ -108,7 +110,16 @@ export default function Toolbar({
         <LogoMark size={22} />
         <span className="font-display font-semibold">Veda</span>
         <ChevronRight size={14} className="shrink-0 text-fg-3" aria-hidden="true" />
-        <span className="max-w-24 truncate text-fg-2 lg:max-w-32">{projectName}</span>
+        <button
+          type="button"
+          onClick={onOpenProjects}
+          title="Switch or create a project"
+          aria-label={`Project ${projectName}. Switch or create a project`}
+          className="flex min-w-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-fg-2 hover:bg-fg/[0.06] hover:text-fg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+        >
+          <span className="max-w-24 truncate lg:max-w-32">{projectName}</span>
+          <ChevronDown size={14} className="shrink-0 text-fg-3" aria-hidden="true" />
+        </button>
       </div>
 
       <Button

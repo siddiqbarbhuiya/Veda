@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import BillingCard from "@/components/dashboard/billing-card";
 import KeysSection from "@/components/dashboard/keys-section";
+import ProjectsSection from "@/components/dashboard/projects-section";
 import TopupSection from "@/components/dashboard/topup-section";
 import TransactionsSection from "@/components/dashboard/transactions-section";
 import WalletCard from "@/components/dashboard/wallet-card";
@@ -96,6 +97,7 @@ export default function DashboardPage() {
         <BillingCard />
       </div>
 
+      <ProjectsSection />
       <TopupSection onChoose={openTopup} />
       <KeysSection />
       <TransactionsSection refreshToken={txRefresh} />

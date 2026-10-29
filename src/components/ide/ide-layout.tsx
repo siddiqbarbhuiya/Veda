@@ -16,6 +16,7 @@ import Toolbar from "./toolbar";
 import BottomPanel from "./bottom-panel";
 import { TemplateDialog } from "./template-dialog";
 import { PackageDialog } from "./package-dialog";
+import { ProjectsDialog } from "./projects-dialog";
 import ChatPanel from "./chat-panel";
 import { ActivityBar } from "./activity-bar";
 import { StatusBar } from "./status-bar";
@@ -30,7 +31,7 @@ import { useViewportMode } from "./use-viewport-mode";
 import { useIdeShortcuts } from "./use-ide-shortcuts";
 import { useSignOut } from "./user-menu";
 import { setTheme, useTheme } from "@/components/ui/theme";
-import { DEFAULT_PROJECT_NAME, useFileSystem } from "@/hooks/use-file-system";
+import { useFileSystem } from "@/hooks/use-file-system";
 
 export default function IdeLayout() {
   return (
@@ -106,7 +107,7 @@ function Shell({ tablet }: { tablet: boolean }) {
   const theme = useTheme();
   const { setRuntime } = useRuntime();
   const { status } = useRuntimeState();
-  const { activeFile, flushNow } = useFileSystem();
+  const { activeFile, flushNow, projectName } = useFileSystem();
   const { signOut, error: signOutError } = useSignOut();
 
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -114,6 +115,7 @@ function Shell({ tablet }: { tablet: boolean }) {
   const [exportOpen, setExportOpen] = useState(false);
   const [templatesOpen, setTemplatesOpen] = useState(false);
   const [packagesOpen, setPackagesOpen] = useState(false);
+  const [projectsOpen, setProjectsOpen] = useState(false);
   const [open, setOpen] = useState({ sidebar: !tablet, chat: !tablet, terminal: true });
 
   const sidebarRef = usePanelRef();
@@ -237,6 +239,7 @@ function Shell({ tablet }: { tablet: boolean }) {
 
   useIdeEvent("veda:open-dialog", ({ dialog }) => {
     if (dialog === "templates") setTemplatesOpen(true);
+    else if (dialog === "projects") setProjectsOpen(true);
     else setPackagesOpen(true);
   });
 
@@ -269,6 +272,7 @@ function Shell({ tablet }: { tablet: boolean }) {
     // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- full navigation is required (COOP/COEP)
     addCredits: () => window.location.assign("/dashboard?topup=1"),
     exportZip: () => setExportOpen(true),
+    openProjects: () => setProjectsOpen(true),
     newFromTemplate: () => setTemplatesOpen(true),
     addPackage: () => setPackagesOpen(true),
     showShortcuts: openShortcuts,
@@ -280,7 +284,8 @@ function Shell({ tablet }: { tablet: boolean }) {
   return (
     <div className="flex h-full w-full flex-col bg-app">
       <Toolbar
-        projectName={DEFAULT_PROJECT_NAME}
+        projectName={projectName}
+        onOpenProjects={() => setProjectsOpen(true)}
         onOpenPalette={openPalette}
         onOpenExport={() => setExportOpen(true)}
         onRun={run}
@@ -380,6 +385,7 @@ function Shell({ tablet }: { tablet: boolean }) {
       <ExportDialog open={exportOpen} onClose={() => setExportOpen(false)} />
       <TemplateDialog open={templatesOpen} onClose={() => setTemplatesOpen(false)} />
       <PackageDialog open={packagesOpen} onClose={() => setPackagesOpen(false)} />
+      <ProjectsDialog open={projectsOpen} onClose={() => setProjectsOpen(false)} />
       {signOutError ? (
         <p
           role="alert"

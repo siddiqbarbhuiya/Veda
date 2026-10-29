@@ -12,6 +12,7 @@ import {
   LayoutDashboard,
   LayoutTemplate,
   Package,
+  FolderOpen,
   LogOut,
   MessageSquare,
   PanelLeft,
@@ -42,6 +43,7 @@ export type PaletteActions = {
   showShortcuts: () => void;
   signOut: () => void;
   newFromTemplate?: () => void;
+  openProjects?: () => void;
   addPackage?: () => void;
   saveNow?: () => void;
   stopRun?: () => void;
@@ -97,6 +99,7 @@ export function CommandPalette({
     ...(actions.stopRun ? [{ id: "stop", label: "Stop run", icon: <Square size={16} />, words: ["kill", "cancel", "terminate"], run: actions.stopRun }] : []),
     ...(actions.saveNow ? [{ id: "save", label: "Save now", icon: <Save size={16} />, keys: ["Ctrl", "S"], words: ["write", "sync", "cloud"], run: actions.saveNow }] : []),
     { id: "new", label: "New file", icon: <FilePlus size={16} />, keys: ["Alt", "N"], run: actions.newFile },
+    ...(actions.openProjects ? [{ id: "projects", label: "Switch or create project", icon: <FolderOpen size={16} />, words: ["open", "new", "projects", "workspace", "delete"], run: actions.openProjects }] : []),
     ...(actions.newFromTemplate ? [{ id: "template", label: "New project from template", icon: <LayoutTemplate size={16} />, words: ["starter", "react", "vite", "express", "python", "create"], run: actions.newFromTemplate }] : []),
     ...(actions.addPackage ? [{ id: "package", label: "Add package (npm or pip)", icon: <Package size={16} />, words: ["install", "npm", "pip", "python", "dependency", "library", "requirements"], run: actions.addPackage }] : []),
     { id: "export", label: "Export project as ZIP", icon: <Download size={16} />, words: ["download", "zip", "backup"], run: actions.exportZip },

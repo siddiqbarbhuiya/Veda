@@ -42,7 +42,7 @@ export type IdeEventMap = {
   "veda:saved": undefined;
   "veda:run-commands": RunCommandsDetail;
   /** Ask the IDE shell to open a dialog. */
-  "veda:open-dialog": { dialog: "templates" | "packages" };
+  "veda:open-dialog": { dialog: "templates" | "packages" | "projects" };
   /** Install pip requirements in Python. With `save`, they are added to requirements.txt. */
   "veda:install-python": { specs: string[]; save: boolean };
 };

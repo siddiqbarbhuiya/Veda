@@ -118,6 +118,41 @@ export class IndexedDBStore {
     }
   }
 
+  /** The projects that this browser holds for a user, with the time of the last edit. */
+  async list(userId: string): Promise<Array<{ name: string; updatedAt: number }>> {
+    try {
+      const db = await this.getDb();
+      const prefix = `${userId}:`;
+      const tx = db.transaction(STORE_NAME, "readonly");
+      const keys = (await tx.store.getAllKeys()).map(String).filter((k) => k.startsWith(prefix) && !k.endsWith("#meta"));
+      const out: Array<{ name: string; updatedAt: number }> = [];
+      for (const key of keys) {
+        const meta = (await tx.store.get(`${key}#meta`)) as { updatedAt?: unknown } | undefined;
+        out.push({ name: key.slice(prefix.length), updatedAt: typeof meta?.updatedAt === "number" ? meta.updatedAt : 0 });
+      }
+      await tx.done;
+      return out;
+    } catch {
+      this.reset();
+      return [];
+    }
+  }
+
+  /** Delete every project (and meta) that this browser holds for a user. Used at sign-out. */
+  async clearAll(userId: string): Promise<void> {
+    try {
+      const db = this.db ?? (await this.getDb());
+      const prefix = `${userId}:`;
+      const tx = db.transaction(STORE_NAME, "readwrite");
+      const keys = (await tx.store.getAllKeys()).map(String).filter((k) => k.startsWith(prefix));
+      for (const key of keys) void tx.store.delete(key);
+      await tx.done;
+    } catch (err) {
+      console.error("IndexedDBStore.clearAll failed", err);
+      this.reset();
+    }
+  }
+
   async load(userId: string, projectName: string): Promise<FileNode[] | null> {
     return (await this.loadWithMeta(userId, projectName))?.files ?? null;
   }

@@ -3,12 +3,15 @@
 import { useCallback, useEffect, useState } from "react";
 import { AlertTriangle, RefreshCw } from "lucide-react";
 import { createBrowserClient } from "@/lib/supabase/client";
-import { FileSystemContext, useFileSystemState } from "@/hooks/use-file-system";
+import { DEFAULT_PROJECT_NAME, FileSystemContext, useFileSystemState } from "@/hooks/use-file-system";
+import { projectFromSearch } from "@/lib/projects/projects";
 import { Button } from "@/components/ui/button";
 import { IdeSkeleton } from "@/components/ide/ide-skeleton";
 
 export default function IdeRouteLayout({ children }: { children: React.ReactNode }) {
   const [userId, setUserId] = useState<string | null>(null);
+  // Set together with userId, so the editor never loads the wrong project first.
+  const [project, setProject] = useState<string>(DEFAULT_PROJECT_NAME);
   const [authError, setAuthError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
 
@@ -29,6 +32,7 @@ export default function IdeRouteLayout({ children }: { children: React.ReactNode
           return;
         }
         setAuthError(null);
+        setProject(projectFromSearch(window.location.search));
         setUserId(data.user.id);
       })
       .catch((err: unknown) => {
@@ -44,7 +48,7 @@ export default function IdeRouteLayout({ children }: { children: React.ReactNode
     setAttempt((n) => n + 1);
   }, []);
 
-  const fs = useFileSystemState(userId);
+  const fs = useFileSystemState(userId, project);
 
   return (
     <FileSystemContext.Provider value={fs}>

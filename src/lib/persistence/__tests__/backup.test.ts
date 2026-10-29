@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { FileNode } from "../indexeddb";
-import { MAX_BACKUP_CHARS, clearBackup, newestSnapshot, readBackup, writeBackup } from "../backup";
+import { MAX_BACKUP_CHARS, clearAllBackups, clearBackup, newestSnapshot, readBackup, writeBackup } from "../backup";
 
 const files: FileNode[] = [{ name: "a.js", path: "a.js", type: "file", content: "1" }];
 
@@ -78,5 +78,17 @@ describe("newestSnapshot", () => {
   });
   it("lets the first win when the times are equal", () => {
     expect(newestSnapshot(snap(2, "a"), snap(2, "b"))?.tag).toBe("a");
+  });
+});
+
+describe("clearAllBackups", () => {
+  it("removes the backups of one user only", () => {
+    writeBackup("u1", "a", files, 1);
+    writeBackup("u1", "b", files, 2);
+    writeBackup("u2", "a", files, 3);
+    clearAllBackups("u1");
+    expect(readBackup("u1", "a")).toBeNull();
+    expect(readBackup("u1", "b")).toBeNull();
+    expect(readBackup("u2", "a")).not.toBeNull();
   });
 });
