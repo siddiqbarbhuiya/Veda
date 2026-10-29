@@ -10,13 +10,12 @@ import {
   type LayoutStorage,
   type PanelSize,
 } from "react-resizable-panels";
-import FileTree from "./file-tree";
+import Sidebar from "./sidebar";
 import EditorPanel from "./editor-panel";
 import Toolbar from "./toolbar";
 import { MenuBar } from "./menu-bar";
 import BottomPanel from "./bottom-panel";
 import { TemplateDialog } from "./template-dialog";
-import { PackageDialog } from "./package-dialog";
 import { ProjectsDialog } from "./projects-dialog";
 import ChatPanel from "./chat-panel";
 import { ActivityBar } from "./activity-bar";
@@ -115,7 +114,6 @@ function Shell({ tablet }: { tablet: boolean }) {
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [templatesOpen, setTemplatesOpen] = useState(false);
-  const [packagesOpen, setPackagesOpen] = useState(false);
   const [projectsOpen, setProjectsOpen] = useState(false);
   const [open, setOpen] = useState({ sidebar: !tablet, chat: !tablet, terminal: true });
 
@@ -238,13 +236,6 @@ function Shell({ tablet }: { tablet: boolean }) {
     }
   }, [tablet, sidebarRef, chatRef]);
 
-  useIdeEvent("veda:open-dialog", ({ dialog }) => {
-    if (dialog === "templates") setTemplatesOpen(true);
-    else if (dialog === "projects") setProjectsOpen(true);
-    else if (dialog === "export") setExportOpen(true);
-    else setPackagesOpen(true);
-  });
-
   const openPalette = useCallback(() => setPaletteOpen(true), []);
   const openShortcuts = useCallback(() => setShortcutsOpen(true), []);
 
@@ -257,6 +248,19 @@ function Shell({ tablet }: { tablet: boolean }) {
     chat: chatShortcut,
     newFile,
     shortcuts: openShortcuts,
+  });
+
+  // Open the Explorer, open its PACKAGES section, and focus the search box.
+  const showPackages = useCallback(() => {
+    expandSide("sidebar");
+    afterPaint(() => emit("veda:show-packages"));
+  }, [expandSide]);
+
+  useIdeEvent("veda:open-dialog", ({ dialog }) => {
+    if (dialog === "templates") setTemplatesOpen(true);
+    else if (dialog === "projects") setProjectsOpen(true);
+    else if (dialog === "export") setExportOpen(true);
+    else showPackages();
   });
 
   const newFolder = useCallback(() => {
@@ -288,11 +292,11 @@ function Shell({ tablet }: { tablet: boolean }) {
       showShortcuts: openShortcuts,
       run,
       stop,
-      addPackage: () => setPackagesOpen(true),
+      addPackage: showPackages,
       focusTerminal,
       clearTerminal: () => emit("veda:clear-terminal"),
     }),
-    [newFile, newFolder, save, router, signOut, openPalette, toggleSidebar, toggleTerminal, toggleChat, theme, openShortcuts, run, stop, focusTerminal]
+    [newFile, newFolder, showPackages, save, router, signOut, openPalette, toggleSidebar, toggleTerminal, toggleChat, theme, openShortcuts, run, stop, focusTerminal]
   );
 
   const actions: PaletteActions = {
@@ -312,7 +316,7 @@ function Shell({ tablet }: { tablet: boolean }) {
     exportZip: () => setExportOpen(true),
     openProjects: () => setProjectsOpen(true),
     newFromTemplate: () => setTemplatesOpen(true),
-    addPackage: () => setPackagesOpen(true),
+    addPackage: showPackages,
     showShortcuts: openShortcuts,
     signOut,
   };
@@ -358,7 +362,7 @@ function Shell({ tablet }: { tablet: boolean }) {
             onResize={track("sidebar")}
           >
             <aside id="sidebar" aria-label="Files" inert={!open.sidebar} className={`${frame} bg-panel`}>
-              <FileTree />
+              <Sidebar />
             </aside>
           </Panel>
           <ResizeHandle id="sep-sidebar" direction="vertical" label="Resize sidebar" />
@@ -423,7 +427,6 @@ function Shell({ tablet }: { tablet: boolean }) {
       <ShortcutsDialog open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
       <ExportDialog open={exportOpen} onClose={() => setExportOpen(false)} />
       <TemplateDialog open={templatesOpen} onClose={() => setTemplatesOpen(false)} />
-      <PackageDialog open={packagesOpen} onClose={() => setPackagesOpen(false)} />
       <ProjectsDialog open={projectsOpen} onClose={() => setProjectsOpen(false)} />
       {signOutError ? (
         <p

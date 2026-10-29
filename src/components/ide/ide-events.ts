@@ -13,6 +13,7 @@ export const IDE_EVENTS = {
   newFolder: "veda:new-folder",
   clearTerminal: "veda:clear-terminal",
   focusTerminal: "veda:focus-terminal",
+  showPackages: "veda:show-packages",
   balanceChanged: "veda:balance-changed",
   saved: "veda:saved",
   runCommands: "veda:run-commands",
@@ -46,6 +47,8 @@ export type IdeEventMap = {
   "veda:clear-terminal": undefined;
   /** Move the focus into the terminal. The terminal panel listens. */
   "veda:focus-terminal": undefined;
+  /** Open the PACKAGES section of the Explorer and focus its search box. The sidebar listens. */
+  "veda:show-packages": undefined;
   /** The wallet balance changed (for example after an AI reply). The toolbar reloads it. */
   "veda:balance-changed": undefined;
   /** The user saved with Ctrl/Cmd+S. The status bar shows "Saved" for a short time. */

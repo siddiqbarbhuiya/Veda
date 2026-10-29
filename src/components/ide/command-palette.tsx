@@ -101,7 +101,7 @@ export function CommandPalette({
     { id: "new", label: "New file", icon: <FilePlus size={16} />, keys: ["Alt", "N"], run: actions.newFile },
     ...(actions.openProjects ? [{ id: "projects", label: "Switch or create project", icon: <FolderOpen size={16} />, words: ["open", "new", "projects", "workspace", "delete"], run: actions.openProjects }] : []),
     ...(actions.newFromTemplate ? [{ id: "template", label: "New project from template", icon: <LayoutTemplate size={16} />, words: ["starter", "react", "vite", "express", "python", "create"], run: actions.newFromTemplate }] : []),
-    ...(actions.addPackage ? [{ id: "package", label: "Add package (npm or pip)", icon: <Package size={16} />, words: ["install", "npm", "pip", "python", "dependency", "library", "requirements"], run: actions.addPackage }] : []),
+    ...(actions.addPackage ? [{ id: "package", label: "Packages (npm or pip)", icon: <Package size={16} />, words: ["install", "npm", "pip", "python", "dependency", "library", "requirements"], run: actions.addPackage }] : []),
     { id: "export", label: "Export project as ZIP", icon: <Download size={16} />, words: ["download", "zip", "backup"], run: actions.exportZip },
     { id: "sidebar", label: "Toggle sidebar", icon: <PanelLeft size={16} />, keys: ["Ctrl", "B"], run: actions.toggleSidebar },
     { id: "terminal", label: "Toggle terminal", icon: <PanelBottom size={16} />, keys: ["Ctrl", "J"], run: actions.toggleTerminal },

@@ -4,8 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { CheckCircle2, Loader2, Package, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Dialog } from "@/components/ui/dialog";
-import { Field, Select } from "@/components/ui/field";
+import { Select } from "@/components/ui/field";
 import { cn } from "@/lib/cn";
 import { findNode, useFileSystem } from "@/hooks/use-file-system";
 import { usePackageSearch } from "@/hooks/use-package-search";
@@ -25,7 +24,11 @@ function abortError() {
   return new DOMException("Aborted", "AbortError");
 }
 
-export function PackageDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+/**
+ * Search, install and remove packages. It lives in the PACKAGES section at the bottom of the Explorer.
+ * `focusToken` changes when something asks to focus the search box (the menu, the palette, the terminal button).
+ */
+export function PackagesPanel({ focusToken }: { focusToken: number }) {
   const { files, applyRuntimeChanges } = useFileSystem();
   const { runtime } = useRuntime();
   const { status } = useRuntimeState();
@@ -37,6 +40,12 @@ export function PackageDialog({ open, onClose }: { open: boolean; onClose: () =>
   const [typedError, setTypedError] = useState<string | null>(null);
   const [pending, setPending] = useState<{ text: string; done: boolean; failed: boolean } | null>(null);
   const sawBusy = useRef(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Something asked for the search box: focus it.
+  useEffect(() => {
+    if (focusToken > 0) inputRef.current?.focus();
+  }, [focusToken]);
 
   // Until the user chooses, the kind follows the runtime: Python gets pip, Node.js gets npm.
   const kind: Kind = kindPick ?? (runtime === "python" ? "pip" : "npm");
@@ -101,22 +110,6 @@ export function PackageDialog({ open, onClose }: { open: boolean; onClose: () =>
   const search = kind === "npm" ? npm : pip;
 
   // ---- install and remove ----
-  function reset() {
-    setKindPick(null);
-    setQuery("");
-    setDev(false);
-    setSave(true);
-    setFolderPick(null);
-    setTypedError(null);
-    setPending(null);
-    sawBusy.current = false;
-  }
-
-  function close() {
-    reset();
-    onClose();
-  }
-
   function start(text: string) {
     sawBusy.current = false;
     setPending({ text, done: false, failed: false });
@@ -182,7 +175,7 @@ export function PackageDialog({ open, onClose }: { open: boolean; onClose: () =>
         setTypedError(null);
       }}
       className={cn(
-        "h-8 flex-1 rounded-md px-3 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
+        "h-7 flex-1 rounded px-2 text-caption font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
         kind === value ? "bg-accent-subtle text-fg" : "text-fg-3 hover:text-fg"
       )}
     >
@@ -196,144 +189,131 @@ export function PackageDialog({ open, onClose }: { open: boolean; onClose: () =>
       : installedPip.map((spec) => ({ key: spec, name: spec, version: "", dev: false, remove: () => removePip(spec) }));
 
   return (
-    <Dialog
-      open={open}
-      onClose={close}
-      title="Packages"
-      description={
-        kind === "pip"
-          ? "Search for a Python package and click it to install. It runs in your browser. Output shows in the terminal."
-          : "Search for an npm package and click it to install. Output shows in the terminal."
-      }
-    >
-      <div className="space-y-4">
-        <div role="radiogroup" aria-label="Package manager" className="flex gap-1 rounded-lg border border-line-strong bg-sunken p-1">
-          {tab("npm", "npm (Node.js)")}
-          {tab("pip", "pip (Python)")}
-        </div>
-
-        {kind === "npm" && options.length > 1 ? (
-          <Field label="Install in">
-            {(props) => (
-              <Select {...props} value={folder} onChange={(e) => setFolderPick(e.target.value)}>
-                {options.map((f) => (
-                  <option key={f || "root"} value={f}>
-                    {f ? `${f}/` : "Project root"}
-                  </option>
-                ))}
-              </Select>
-            )}
-          </Field>
-        ) : null}
-
-        <PackageCombobox
-          label={kind === "pip" ? "Search Python packages" : "Search npm packages"}
-          value={query}
-          onChange={(v) => {
-            setQuery(v);
-            setTypedError(null);
-          }}
-          options={comboOptions}
-          loading={search.loading}
-          error={typedError ?? search.error}
-          placeholder={kind === "pip" ? "requests, numpy, pandas..." : "react, lodash, axios..."}
-          emptyText={
-            kind === "pip"
-              ? "No match. Press Enter to try the exact name on PyPI."
-              : "No package found. Check the name, or press Enter to install the exact name."
-          }
-          onPick={(o) => install(kind === "pip" ? o.title : o.id)}
-          onSubmit={submitTyped}
-          autoFocus
-        />
-
-        {kind === "npm" ? (
-          <label className="flex items-center gap-2 text-sm text-fg-2">
-            <input type="checkbox" className="size-4 accent-[var(--accent)]" checked={dev} onChange={(e) => setDev(e.target.checked)} />
-            Install as a dev dependency (<code>--save-dev</code>)
-          </label>
-        ) : (
-          <>
-            <label className="flex items-center gap-2 text-sm text-fg-2">
-              <input type="checkbox" className="size-4 accent-[var(--accent)]" checked={save} onChange={(e) => setSave(e.target.checked)} />
-              Add to <code>requirements.txt</code> (installed again after a reload)
-            </label>
-            <p className="text-caption text-fg-3">
-              Packages with pure Python code, and the packages that Pyodide ships (such as numpy and pandas), work. Packages that need native code do not.
-            </p>
-          </>
-        )}
-
-        {kind === "npm" && !folders.includes(folder) ? (
-          <p className="text-caption text-fg-3">
-            There is no package.json here. Veda runs <code>npm init -y</code> first.
-          </p>
-        ) : null}
-
-        {pending ? (
-          <p
-            role="status"
-            className={cn("flex items-start gap-2 rounded-lg px-3 py-2 text-sm", pending.failed ? "bg-danger-subtle text-danger" : "bg-sunken text-fg-2")}
-          >
-            {pending.done ? (
-              <CheckCircle2 size={16} className={cn("mt-0.5 shrink-0", pending.failed ? "text-danger" : "text-success")} aria-hidden="true" />
-            ) : (
-              <Loader2 size={16} className="mt-0.5 shrink-0 animate-spin" aria-hidden="true" />
-            )}
-            <span>
-              {pending.done && !pending.text.startsWith("Removed")
-                ? pending.failed
-                  ? `${pending.text} did not finish. See the terminal.`
-                  : `${pending.text.replace(/^Installing/, "Installed").replace(/^Removing/, "Removed")}.`
-                : pending.text.startsWith("Removed")
-                  ? pending.text
-                  : `${pending.text}... The output is in the terminal.`}
-            </span>
-          </p>
-        ) : null}
-
-        <section aria-label="Installed packages">
-          <h3 className="mb-1.5 flex items-center gap-2 text-ui font-medium text-fg">
-            Installed
-            <span className="text-caption font-normal text-fg-3">
-              {kind === "npm" ? (folders.includes(folder) ? `in ${folder ? `${folder}/` : ""}package.json` : "no package.json yet") : "in requirements.txt"}
-            </span>
-          </h3>
-          {installedRows.length === 0 ? (
-            <p className="rounded-lg border border-dashed border-line-strong px-3 py-3 text-caption text-fg-3">No packages listed yet.</p>
-          ) : (
-            <ul className="max-h-48 divide-y divide-line overflow-y-auto rounded-lg border border-line-strong">
-              {installedRows.map((row) => (
-                <li key={row.key} className="flex items-center gap-2 px-3 py-1.5">
-                  <span className="min-w-0 truncate text-ui text-fg">{row.name}</span>
-                  {row.version ? <span className="shrink-0 text-caption text-fg-3">{row.version}</span> : null}
-                  {row.dev ? <Badge tone="neutral">dev</Badge> : null}
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-sm"
-                    className="ml-auto"
-                    aria-label={`Remove ${row.name}`}
-                    title={`Remove ${row.name}`}
-                    onClick={row.remove}
-                  >
-                    <Trash2 size={14} aria-hidden="true" />
-                  </Button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-
-        <div className="flex justify-end gap-2 pt-1">
-          <Button type="button" variant="ghost" onClick={close}>
-            Close
-          </Button>
-          <Button type="button" variant="primary" leadingIcon={<Package size={16} aria-hidden="true" />} disabled={!typedOk} onClick={submitTyped}>
-            {typedOk ? `Install ${typedSpec.length > 24 ? typedSpec.slice(0, 23) + "…" : typedSpec}` : "Install"}
-          </Button>
-        </div>
+    <div className="space-y-3 px-3 pb-3 pt-1">
+      <div role="radiogroup" aria-label="Package manager" className="flex gap-1 rounded-md border border-line-strong bg-sunken p-0.5">
+        {tab("npm", "npm (Node.js)")}
+        {tab("pip", "pip (Python)")}
       </div>
-    </Dialog>
+
+      {kind === "npm" && options.length > 1 ? (
+        <div className="space-y-1">
+          <label htmlFor="pkg-folder" className="text-caption font-medium text-fg-2">
+            Install in
+          </label>
+          <Select id="pkg-folder" value={folder} onChange={(e) => setFolderPick(e.target.value)}>
+            {options.map((f) => (
+              <option key={f || "root"} value={f}>
+                {f ? `${f}/` : "Project root"}
+              </option>
+            ))}
+          </Select>
+        </div>
+      ) : null}
+
+      <PackageCombobox
+        label={kind === "pip" ? "Search Python packages" : "Search npm packages"}
+        value={query}
+        onChange={(v) => {
+          setQuery(v);
+          setTypedError(null);
+        }}
+        options={comboOptions}
+        loading={search.loading}
+        error={typedError ?? search.error}
+        placeholder={kind === "pip" ? "requests, numpy..." : "react, lodash..."}
+        emptyText={
+          kind === "pip" ? "No match. Press Enter to try the exact name on PyPI." : "No package found. Press Enter to install the exact name."
+        }
+        onPick={(o) => install(kind === "pip" ? o.title : o.id)}
+        onSubmit={submitTyped}
+        inputRef={inputRef}
+      />
+
+      {kind === "npm" ? (
+        <label className="flex items-center gap-2 text-caption text-fg-2">
+          <input type="checkbox" className="size-3.5 accent-[var(--accent)]" checked={dev} onChange={(e) => setDev(e.target.checked)} />
+          Dev dependency (<code>--save-dev</code>)
+        </label>
+      ) : (
+        <>
+          <label className="flex items-start gap-2 text-caption text-fg-2">
+            <input type="checkbox" className="mt-0.5 size-3.5 accent-[var(--accent)]" checked={save} onChange={(e) => setSave(e.target.checked)} />
+            <span>
+              Add to <code>requirements.txt</code> (installed again after a reload)
+            </span>
+          </label>
+          <p className="text-caption text-fg-3">
+            Pure Python packages and the packages that Pyodide ships (numpy, pandas, and more) work. Packages that need native code do not.
+          </p>
+        </>
+      )}
+
+      {kind === "npm" && !folders.includes(folder) ? (
+        <p className="text-caption text-fg-3">
+          There is no package.json here. Veda runs <code>npm init -y</code> first.
+        </p>
+      ) : null}
+
+      {typedOk ? (
+        <Button type="button" variant="primary" size="sm" className="w-full" leadingIcon={<Package size={14} aria-hidden="true" />} onClick={submitTyped}>
+          <span className="truncate">Install {typedSpec}</span>
+        </Button>
+      ) : null}
+
+      {pending ? (
+        <p
+          role="status"
+          className={cn("flex items-start gap-2 rounded-md px-2.5 py-2 text-caption", pending.failed ? "bg-danger-subtle text-danger" : "bg-sunken text-fg-2")}
+        >
+          {pending.done ? (
+            <CheckCircle2 size={14} className={cn("mt-0.5 shrink-0", pending.failed ? "text-danger" : "text-success")} aria-hidden="true" />
+          ) : (
+            <Loader2 size={14} className="mt-0.5 shrink-0 animate-spin" aria-hidden="true" />
+          )}
+          <span className="wrap-anywhere">
+            {pending.done && !pending.text.startsWith("Removed")
+              ? pending.failed
+                ? `${pending.text} did not finish. See the terminal.`
+                : `${pending.text.replace(/^Installing/, "Installed").replace(/^Removing/, "Removed")}.`
+              : pending.text.startsWith("Removed")
+                ? pending.text
+                : `${pending.text}... The output is in the terminal.`}
+          </span>
+        </p>
+      ) : null}
+
+      <section aria-label="Installed packages">
+        <h3 className="mb-1 flex items-center gap-2 text-caption font-medium text-fg-2">
+          Installed
+          <span className="truncate font-normal text-fg-3">
+            {kind === "npm" ? (folders.includes(folder) ? `in ${folder ? `${folder}/` : ""}package.json` : "no package.json yet") : "in requirements.txt"}
+          </span>
+        </h3>
+        {installedRows.length === 0 ? (
+          <p className="rounded-md border border-dashed border-line-strong px-2.5 py-2 text-caption text-fg-3">No packages listed yet.</p>
+        ) : (
+          <ul className="max-h-48 divide-y divide-line overflow-y-auto rounded-md border border-line-strong">
+            {installedRows.map((row) => (
+              <li key={row.key} className="flex items-center gap-1.5 py-0.5 pl-2.5 pr-1">
+                <span className="min-w-0 truncate text-ui text-fg">{row.name}</span>
+                {row.version ? <span className="shrink-0 text-caption text-fg-3">{row.version}</span> : null}
+                {row.dev ? <Badge tone="neutral">dev</Badge> : null}
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  className="ml-auto shrink-0"
+                  aria-label={`Remove ${row.name}`}
+                  title={`Remove ${row.name}`}
+                  onClick={row.remove}
+                >
+                  <Trash2 size={14} aria-hidden="true" />
+                </Button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+    </div>
   );
 }

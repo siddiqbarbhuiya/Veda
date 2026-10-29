@@ -163,7 +163,7 @@ export function buildMenus(a: MenuActions, ctx: MenuContext): Menu[] {
         item("run", "Run Code", a.run, { keys: ["Mod", "Enter"], disabled: ctx.busy || !ctx.hasFile }),
         item("stop", "Stop", a.stop, { disabled: !ctx.busy }),
         sep,
-        item("add-package", "Add Package (npm or pip)...", a.addPackage),
+        item("add-package", "Packages (npm or pip)", a.addPackage),
       ],
     },
     {
@@ -174,7 +174,7 @@ export function buildMenus(a: MenuActions, ctx: MenuContext): Menu[] {
         item("focus-terminal", "Focus Terminal", a.focusTerminal),
         item("clear-terminal", "Clear Terminal", a.clearTerminal),
         sep,
-        item("terminal-package", "Add Package (npm or pip)...", a.addPackage),
+        item("terminal-package", "Packages (npm or pip)", a.addPackage),
       ],
     },
     {

@@ -30,6 +30,7 @@ export function PackageCombobox({
   onPick,
   onSubmit,
   autoFocus,
+  inputRef,
 }: {
   label: string;
   value: string;
@@ -43,6 +44,7 @@ export function PackageCombobox({
   onPick: (option: ComboOption) => void;
   onSubmit: () => void;
   autoFocus?: boolean;
+  inputRef?: React.Ref<HTMLInputElement>;
 }) {
   const uid = useId();
   const listId = `${uid}-list`;
@@ -94,6 +96,7 @@ export function PackageCombobox({
         <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-fg-3" aria-hidden="true" />
         <input
           id={`${uid}-input`}
+          ref={inputRef}
           role="combobox"
           aria-expanded={showList}
           aria-controls={listId}
@@ -149,16 +152,14 @@ export function PackageCombobox({
               onMouseMove={() => setActive(i)}
               className={cn("cursor-pointer px-3 py-2", i === active ? "bg-accent-subtle" : "hover:bg-fg/[0.05]")}
             >
-              <div className="flex items-center gap-2">
-                <span className="min-w-0 truncate text-ui font-medium text-fg">{o.title}</span>
-                {o.meta ? <span className="shrink-0 text-caption text-fg-3">{o.meta}</span> : null}
-                {o.badge ? (
-                  <span className="ml-auto shrink-0">
-                    <Badge tone={o.badge.tone}>{o.badge.label}</Badge>
-                  </span>
-                ) : null}
-              </div>
-              {o.subtitle ? <p className="truncate text-caption text-fg-3">{o.subtitle}</p> : null}
+              <p className="truncate text-ui font-medium text-fg">{o.title}</p>
+              {o.meta || o.badge ? (
+                <div className="mt-0.5 flex items-center gap-2">
+                  {o.meta ? <span className="shrink-0 text-caption text-fg-3">{o.meta}</span> : null}
+                  {o.badge ? <Badge tone={o.badge.tone}>{o.badge.label}</Badge> : null}
+                </div>
+              ) : null}
+              {o.subtitle ? <p className="mt-0.5 truncate text-caption text-fg-3">{o.subtitle}</p> : null}
             </li>
           ))}
         </ul>
