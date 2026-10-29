@@ -1,5 +1,6 @@
 import { REACT_FASTAPI_FILES } from "./react-fastapi";
 import { REACT_TS_EXPRESS_FILES } from "./react-ts-express";
+import { REACT_TS_FASTAPI_FILES } from "./react-ts-fastapi";
 
 /** Project templates. A template is created in its own folder, so it never overwrites the student's files. */
 
@@ -135,7 +136,21 @@ const reactTsExpress: Template = {
   files: REACT_TS_EXPRESS_FILES,
 };
 
-export const TEMPLATES: Template[] = [python, nodeScript, viteReact, express, reactFastapi, reactTsExpress];
+const reactTsFastapi: Template = {
+  id: "react-ts-fastapi",
+  name: "React + TypeScript + FastAPI",
+  description: "A to-do app: a Python FastAPI REST API and a React + TypeScript front end. Both run in your browser.",
+  runtime: "node",
+  entry: "backend/main.py",
+  run: [
+    { cmd: "npm", args: ["install"] },
+    { cmd: "npm", args: ["run", "dev"] },
+  ],
+  serves: true,
+  files: REACT_TS_FASTAPI_FILES,
+};
+
+export const TEMPLATES: Template[] = [python, nodeScript, viteReact, express, reactFastapi, reactTsExpress, reactTsFastapi];
 
 export function getTemplate(id: string): Template | undefined {
   return TEMPLATES.find((t) => t.id === id);

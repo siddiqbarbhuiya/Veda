@@ -363,6 +363,9 @@ def add_item(item: Item):
 
 const requirementsTxt = "# Extra Python packages for backend/main.py, one on each line. FastAPI is added for you.\n";
 
+/** The Python worker. The React + TypeScript + FastAPI template uses the same file. */
+export const PYTHON_WORKER_JS = workerJs;
+
 export const REACT_FASTAPI_FILES: Record<string, string> = {
   "package.json": packageJson,
   "vite.config.js": viteConfig,

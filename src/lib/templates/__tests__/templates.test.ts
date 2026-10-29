@@ -4,7 +4,7 @@ import { validateName } from "@/lib/files/validate-name";
 
 describe("TEMPLATES", () => {
   it("has the templates that the owner chose, React + FastAPI and React + TypeScript + Express", () => {
-    expect(TEMPLATES.map((t) => t.id).sort()).toEqual(["express", "node-script", "python", "react-fastapi", "react-ts-express", "vite-react"]);
+    expect(TEMPLATES.map((t) => t.id).sort()).toEqual(["express", "node-script", "python", "react-fastapi", "react-ts-express", "react-ts-fastapi", "vite-react"]);
   });
   it("has a valid entry file in every template", () => {
     for (const t of TEMPLATES) expect(Object.keys(t.files)).toContain(t.entry);
