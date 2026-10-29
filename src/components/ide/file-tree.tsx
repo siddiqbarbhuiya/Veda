@@ -4,6 +4,7 @@ import { useCallback, useMemo, useState } from "react";
 import { ChevronRight, FilePlus, FolderPlus } from "lucide-react";
 import { useFileSystem, findNode, type FileNode } from "@/hooks/use-file-system";
 import { validateName, validateNewPath } from "@/lib/files/validate-name";
+import { isRuntimePath } from "@/lib/files/runtime-view";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { cn } from "@/lib/cn";
@@ -37,9 +38,12 @@ function countFiles(n: FileNode): number {
 const baseDir = (n: FileNode | null) => (!n ? "" : n.type === "directory" ? n.path + "/" : dirOf(n.path));
 
 export default function FileTree() {
-  const { files, activeFile, openFile, createFile, deleteFile, renameNode, loaded } = useFileSystem();
+  const { files, runtimeFiles, loadRuntimeDir, activeFile, openFile, createFile, deleteFile, renameNode, loaded } = useFileSystem();
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
+  // Read-only folders (node_modules) are closed until the user opens them.
+  const [expandedRO, setExpandedRO] = useState<Set<string>>(() => new Set());
+  const isOpenDir = (n: FileNode) => (isRuntimePath(n.path) ? expandedRO.has(n.path) : !collapsed.has(n.path));
   const [focused, setFocused] = useState<string | null>(null);
   const [inline, setInline] = useState<Inline>(null);
   const [toDelete, setToDelete] = useState<FileNode | null>(null);
@@ -55,12 +59,13 @@ export default function FileTree() {
     const walk = (nodes: FileNode[], depth: number, parent: string | null) => {
       for (const n of sortNodes(nodes)) {
         out.push({ node: n, depth, parent });
-        if (n.type === "directory" && !collapsed.has(n.path)) walk(n.children ?? [], depth + 1, n.path);
+        if (n.type === "directory" && isOpenDir(n)) walk(n.children ?? [], depth + 1, n.path);
       }
     };
-    walk(files, 0, null);
+    walk([...files, ...runtimeFiles], 0, null);
     return out;
-  }, [files, collapsed]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [files, runtimeFiles, collapsed, expandedRO]);
 
   const activePath = activeFile?.path ?? null;
   const rovingPath = visible.some((r) => r.node.path === focused)
@@ -75,13 +80,24 @@ export default function FileTree() {
     for (const el of els) if (el.dataset.path === path) el.focus();
   };
 
-  const setOpen = (path: string, open: boolean) =>
+  const setOpen = (path: string, open: boolean) => {
+    if (isRuntimePath(path)) {
+      setExpandedRO((prev) => {
+        const next = new Set(prev);
+        if (open) next.add(path);
+        else next.delete(path);
+        return next;
+      });
+      if (open) void loadRuntimeDir(path);
+      return;
+    }
     setCollapsed((prev) => {
       const next = new Set(prev);
       if (open) next.delete(path);
       else next.add(path);
       return next;
     });
+  };
 
   const startNew = (mode: "new-file" | "new-folder", dir: string) => {
     if (dir) setOpen(dir.slice(0, -1), true);
@@ -90,7 +106,9 @@ export default function FileTree() {
   };
 
   const selected = (focused ? findNode(files, focused) : null) ?? activeFile;
-  useIdeEvent("veda:new-file", () => startNew("new-file", baseDir(selected ?? null)));
+  // A new file or folder never goes into node_modules.
+  const newBase = () => baseDir(selected && !isRuntimePath(selected.path) ? selected : null);
+  useIdeEvent("veda:new-file", () => startNew("new-file", newBase()));
 
   const startRename = (node: FileNode) => {
     setMenu(null);
@@ -151,7 +169,7 @@ export default function FileTree() {
     if (idx < 0) return;
     const { node, parent } = visible[idx];
     const isDir = node.type === "directory";
-    const isOpen = isDir && !collapsed.has(node.path);
+    const isOpen = isDir && isOpenDir(node);
     const go = (i: number) => {
       const r = visible[Math.max(0, Math.min(visible.length - 1, i))];
       if (r) focusRow(r.node.path);
@@ -177,14 +195,14 @@ export default function FileTree() {
         if (isDir) setOpen(node.path, !isOpen);
         else open(node.path);
         break;
-      case "F2": e.preventDefault(); startRename(node); break;
-      case "Delete": e.preventDefault(); setToDelete(node); break;
+      case "F2": e.preventDefault(); if (!isRuntimePath(node.path)) startRename(node); break;
+      case "Delete": e.preventDefault(); if (!isRuntimePath(node.path)) setToDelete(node); break;
       case "ContextMenu":
       case "F10": {
         if (e.key === "F10" && !e.shiftKey) break;
         e.preventDefault();
         const r = target.getBoundingClientRect();
-        setMenu({ x: r.left + 24, y: r.bottom, node });
+        setMenu({ x: r.left + 24, y: r.bottom, node: isRuntimePath(node.path) ? null : node });
         break;
       }
     }
@@ -209,7 +227,7 @@ export default function FileTree() {
   const newAt = inline && inline.mode !== "rename" ? inline : null;
   for (const { node, depth } of visible) {
     const isDir = node.type === "directory";
-    const isOpen = isDir && !collapsed.has(node.path);
+    const isOpen = isDir && isOpenDir(node);
     const isActive = node.path === activePath;
     if (inline?.mode === "rename" && inline.path === node.path) {
       rows.push(
@@ -238,8 +256,9 @@ export default function FileTree() {
           aria-level={depth + 1}
           data-path={node.path}
           tabIndex={node.path === rovingPath ? 0 : -1}
-          title={node.path}
+          title={isRuntimePath(node.path) ? `${node.path} (read-only, installed by npm)` : node.path}
           className={cn(
+            isRuntimePath(node.path) && "opacity-70",
             "relative flex h-6 cursor-pointer select-none items-center gap-1.5 rounded-sm pr-2 text-ui outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring",
             isActive ? "bg-accent-subtle text-fg" : "text-fg-2 hover:bg-fg/[0.06] hover:text-fg",
           )}
@@ -254,7 +273,7 @@ export default function FileTree() {
             e.preventDefault();
             e.stopPropagation();
             setFocused(node.path);
-            setMenu({ x: e.clientX, y: e.clientY, node });
+            setMenu({ x: e.clientX, y: e.clientY, node: isRuntimePath(node.path) ? null : node });
           }}
         >
           {Array.from({ length: depth }, (_, i) => (
@@ -280,10 +299,10 @@ export default function FileTree() {
       <div className="sticky top-0 z-10 flex h-9 shrink-0 items-center justify-between border-b border-line bg-panel pl-3 pr-1.5">
         <h2 className="text-overline font-semibold uppercase tracking-[0.08em] text-fg-3">Explorer</h2>
         <div className="flex items-center gap-1">
-          <Button variant="ghost" size="icon-sm" className={iconBtn} aria-label="New file" title="New file" disabled={!loaded} onClick={() => startNew("new-file", baseDir(selected ?? null))}>
+          <Button variant="ghost" size="icon-sm" className={iconBtn} aria-label="New file" title="New file" disabled={!loaded} onClick={() => startNew("new-file", newBase())}>
             <FilePlus size={16} aria-hidden="true" />
           </Button>
-          <Button variant="ghost" size="icon-sm" className={iconBtn} aria-label="New folder" title="New folder" disabled={!loaded} onClick={() => startNew("new-folder", baseDir(selected ?? null))}>
+          <Button variant="ghost" size="icon-sm" className={iconBtn} aria-label="New folder" title="New folder" disabled={!loaded} onClick={() => startNew("new-folder", newBase())}>
             <FolderPlus size={16} aria-hidden="true" />
           </Button>
         </div>

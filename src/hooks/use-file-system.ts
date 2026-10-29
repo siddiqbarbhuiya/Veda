@@ -6,6 +6,14 @@ import { CloudStore } from "@/lib/persistence/cloud-store";
 import { chooseSource, describeSync, type Snapshot } from "@/lib/persistence/sync";
 import { sanitizeTree, validateName } from "@/lib/files/validate-name";
 import { applyIncomingToTree, type Incoming } from "@/lib/files/runtime-sync";
+import {
+  RUNTIME_ROOT,
+  buildRuntimeTree,
+  isRuntimePath,
+  viewText,
+  type RuntimeEntry,
+} from "@/lib/files/runtime-view";
+import { peekWebContainer } from "@/hooks/use-webcontainer";
 import { createBrowserClient } from "@/lib/supabase/client";
 
 export type { FileNode };
@@ -182,6 +190,19 @@ export function useFileSystemState(userId: string | null, projectName: string = 
   useEffect(() => {
     filesRef.current = files;
   }, [files]);
+
+  // Read-only view of node_modules from the runtime. It is never saved.
+  const [runtimeDirs, setRuntimeDirs] = useState<Record<string, RuntimeEntry[]>>({});
+  const [runtimeText, setRuntimeText] = useState<Record<string, string>>({});
+  const runtimeDirsRef = useRef(runtimeDirs);
+  useEffect(() => {
+    runtimeDirsRef.current = runtimeDirs;
+  }, [runtimeDirs]);
+  const runtimeFiles = useMemo(
+    // A node_modules folder that the user made in the project hides the read-only one.
+    () => (files.some((n) => n.path === RUNTIME_ROOT) ? [] : buildRuntimeTree(runtimeDirs, runtimeText)),
+    [files, runtimeDirs, runtimeText]
+  );
 
   const setStatus = useCallback((status: SyncState["status"], error: string | null, syncedAt?: number | null) => {
     const online = typeof navigator === "undefined" || navigator.onLine !== false;
@@ -442,9 +463,57 @@ export function useFileSystemState(userId: string | null, projectName: string = 
     return pushCloud();
   }, [retryCloud, pushCloud]);
 
+  const listRuntime = useCallback(async (dir: string): Promise<RuntimeEntry[] | null> => {
+    const wc = await peekWebContainer();
+    if (!wc) return null;
+    try {
+      const list = await wc.fs.readdir(`/${dir}`, { withFileTypes: true });
+      return list.map((ent) => ({ name: ent.name, isDir: ent.isDirectory() }));
+    } catch {
+      return null;
+    }
+  }, []);
+
+  const loadRuntimeText = useCallback(async (path: string) => {
+    const wc = await peekWebContainer();
+    let text: string | null = null;
+    try {
+      text = wc ? await wc.fs.readFile(`/${path}`, "utf-8") : null;
+    } catch {
+      text = null;
+    }
+    setRuntimeText((prev) => ({ ...prev, [path]: viewText(text) }));
+  }, []);
+
+  /** List one node_modules folder when the user opens it. */
+  const loadRuntimeDir = useCallback(async (path: string) => {
+    const list = await listRuntime(path);
+    if (list) setRuntimeDirs((prev) => ({ ...prev, [path]: list }));
+  }, [listRuntime]);
+
+  /** Read node_modules again: the root, every folder that is already listed, and the open files. */
+  const refreshRuntime = useCallback(async () => {
+    const root = await listRuntime("");
+    if (root === null) return;
+    if (!root.some((e) => e.isDir && e.name === RUNTIME_ROOT)) {
+      setRuntimeDirs((prev) => (Object.keys(prev).length ? {} : prev));
+      setRuntimeText((prev) => (Object.keys(prev).length ? {} : prev));
+      setNav((n) => removeFromNav(n, isRuntimePath));
+      return;
+    }
+    const keys = [RUNTIME_ROOT, ...Object.keys(runtimeDirsRef.current).filter((k) => k !== RUNTIME_ROOT)].slice(0, 100);
+    const next: Record<string, RuntimeEntry[]> = {};
+    for (const k of keys) {
+      const list = await listRuntime(k);
+      if (list) next[k] = list;
+    }
+    setRuntimeDirs((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next));
+  }, [listRuntime]);
+
   const openFile = useCallback((path: string) => {
     setNav((n) => ({ tabs: n.tabs.includes(path) ? n.tabs : [...n.tabs, path], active: path }));
-  }, []);
+    if (isRuntimePath(path)) void loadRuntimeText(path);
+  }, [loadRuntimeText]);
 
   const closeTab = useCallback((path: string) => {
     setNav((n) => removeFromNav(n, (p) => p === path));
@@ -498,7 +567,7 @@ export function useFileSystemState(userId: string | null, projectName: string = 
   }, [edited]);
 
   const activePath = nav.active;
-  const activeFile = activePath ? findNode(files, activePath) : null;
+  const activeFile = activePath ? (findNode(files, activePath) ?? findNode(runtimeFiles, activePath)) : null;
 
   return {
     files,
@@ -512,6 +581,9 @@ export function useFileSystemState(userId: string | null, projectName: string = 
     renameNode,
     updateFileContent,
     applyRuntimeChanges,
+    runtimeFiles,
+    loadRuntimeDir,
+    refreshRuntime,
     saveAll,
     flushNow,
     clearLocal,

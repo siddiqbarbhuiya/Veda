@@ -4,10 +4,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { AlertCircle, Eraser, Loader2, Play, Square, X } from "lucide-react";
-import { useFileSystem } from "@/hooks/use-file-system";
+import { useFileSystem, type FileNode } from "@/hooks/use-file-system";
 import { useWebContainer, isIsolationError, type RunningCommand } from "@/hooks/use-webcontainer";
 import { usePyodide, PYODIDE_DOWNLOAD_ERROR } from "@/hooks/use-pyodide";
 import { nodePath, runtimeForFile, type RunKind } from "@/hooks/run-helpers";
+import { packageJsonHasDeps, RUNTIME_ROOT } from "@/lib/files/runtime-view";
 import { useTheme } from "@/components/ui/theme";
 import { Button } from "@/components/ui/button";
 import { useRuntime } from "./runtime-context";
@@ -16,17 +17,22 @@ import { buildXtermTheme, terminalFontFamily } from "./xterm-theme";
 
 const BOOT_LABEL = "Booting Node.js runtime...";
 const RUNNING_LABEL = "Running...";
+const INSTALL_LABEL = "Installing packages...";
 const PY_LOADING_LABEL = "Loading Python (about 10 s on first run)...";
 
 type PanelError = { message: string; kind: "isolation" | "boot" | "python-load" | "run" };
 type Busy = Record<RunKind, string | null>;
+
+function findPackageJson(nodes: FileNode[]): string | undefined {
+  return nodes.find((n) => n.type === "file" && n.path === "package.json")?.content;
+}
 
 function dim(term: Terminal, text: string) {
   term.writeln(`\x1b[90m${text}\x1b[0m`);
 }
 
 export default function TerminalPanel() {
-  const { files, activeFile, loaded, applyRuntimeChanges } = useFileSystem();
+  const { files, activeFile, loaded, applyRuntimeChanges, refreshRuntime } = useFileSystem();
   const { runtime, setRuntime } = useRuntime();
   const wc = useWebContainer();
   const py = usePyodide();
@@ -42,18 +48,21 @@ export default function TerminalPanel() {
   const [bootNonce, setBootNonce] = useState(0);
 
   // The latest values for stable callbacks.
-  const latest = useRef({ files, activeFile, runtime, applyRuntimeChanges });
+  const latest = useRef({ files, activeFile, runtime, applyRuntimeChanges, refreshRuntime });
   useEffect(() => {
-    latest.current = { files, activeFile, runtime, applyRuntimeChanges };
+    latest.current = { files, activeFile, runtime, applyRuntimeChanges, refreshRuntime };
   });
   // True after the Node runtime booted and got its first copy of the project.
   const nodeReady = useRef(false);
+  const [shellUp, setShellUp] = useState(false);
+  const autoInstalled = useRef(false);
 
   /** Copy what the terminal or a script changed in the runtime into the editor. */
   const pullRuntime = useCallback(async () => {
     try {
       const ops = await wc.pullFromRuntime(() => latest.current.files);
       if (ops) latest.current.applyRuntimeChanges(ops);
+      await latest.current.refreshRuntime();
     } catch {
       // The runtime is not ready. The next change event tries again.
     }
@@ -131,6 +140,7 @@ export default function TerminalPanel() {
         nodeReady.current = true;
         if (cancelled || !termRef.current) return;
         await wc.startShell(termRef.current);
+        setShellUp(true);
       } catch (e) {
         if (cancelled) return;
         if (isIsolationError(e)) setError({ message: (e as Error).message, kind: "isolation" });
@@ -153,6 +163,46 @@ export default function TerminalPanel() {
     if (!termReady) return;
     return wc.onRuntimeChange(() => void pullRuntime());
   }, [termReady, wc, pullRuntime]);
+
+  // After a reload node_modules is gone. Install the packages that package.json lists, once.
+  useEffect(() => {
+    if (!loaded || !shellUp || runtime !== "node" || autoInstalled.current) return;
+    if (busy.node || busy.python) return;
+    const pkg = findPackageJson(latest.current.files);
+    if (!packageJsonHasDeps(pkg)) {
+      autoInstalled.current = true;
+      void latest.current.refreshRuntime();
+      return;
+    }
+    autoInstalled.current = true;
+    const term = termRef.current;
+    if (!term) return;
+    (async () => {
+      try {
+        await wc.writeFiles(latest.current.files);
+        const wcInst = await wc.boot();
+        const hasModules = (await wcInst.fs.readdir("/", { withFileTypes: true })).some(
+          (e) => e.isDirectory() && e.name === RUNTIME_ROOT
+        );
+        if (hasModules) {
+          await latest.current.refreshRuntime();
+          return;
+        }
+        setBusyFor("node", INSTALL_LABEL);
+        dim(term, "$ npm install (restoring your packages)");
+        const cmd = await wc.runCommand("npm", ["install"]);
+        procRef.current = cmd;
+        const code = await cmd.exit;
+        dim(term, code === 0 ? "packages installed" : `npm install failed with code ${code}. Run it again in the terminal.`);
+        await pullRuntime();
+      } catch (e) {
+        dim(term, `Could not install packages: ${e instanceof Error ? e.message : String(e)}`);
+      } finally {
+        procRef.current = null;
+        if (busyRef.current.node === INSTALL_LABEL) setBusyFor("node", null);
+      }
+    })();
+  }, [loaded, shellUp, runtime, busy.node, busy.python, wc, setBusyFor, pullRuntime]);
 
   // Editor -> terminal: a change in the tree reaches the runtime without a Run.
   useEffect(() => {
@@ -234,7 +284,7 @@ export default function TerminalPanel() {
   useIdeEvent("veda:stop", stop);
 
   const busyLabel = busy.node ?? busy.python;
-  const nodeRunning = busy.node === RUNNING_LABEL;
+  const nodeRunning = busy.node === RUNNING_LABEL || busy.node === INSTALL_LABEL;
 
   // Terminal -> shell: report every busy/error transition.
   useEffect(() => {

@@ -6,6 +6,8 @@ export type FileNode = {
   type: "file" | "directory";
   content?: string;
   children?: FileNode[];
+  /** Set only on runtime view nodes (node_modules). They are never saved. */
+  readOnly?: boolean;
 };
 
 const DB_NAME = "veda";

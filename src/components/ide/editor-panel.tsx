@@ -56,7 +56,7 @@ function EmptyState() {
   );
 }
 
-function Breadcrumbs({ path }: { path: string }) {
+function Breadcrumbs({ path, readOnly }: { path: string; readOnly: boolean }) {
   const parts = path.split("/");
   return (
     <nav aria-label="Breadcrumb" className="flex h-6 shrink-0 items-center gap-0.5 overflow-hidden border-b border-line bg-editor px-3 text-caption text-fg-3">
@@ -68,12 +68,13 @@ function Breadcrumbs({ path }: { path: string }) {
           </span>
         </span>
       ))}
+      {readOnly && <span className="ml-auto shrink-0 pl-2 text-fg-3">Read-only</span>}
     </nav>
   );
 }
 
 export default function EditorPanel() {
-  const { files, activeFile, openTabs, openFile, closeTab, updateFileContent, flushNow } = useFileSystem();
+  const { files, runtimeFiles, activeFile, openTabs, openFile, closeTab, updateFileContent, flushNow } = useFileSystem();
   const theme = useTheme();
   const monacoRef = useRef<Monaco | null>(null);
   const editorRef = useRef<Parameters<OnMount>[0] | null>(null);
@@ -100,7 +101,7 @@ export default function EditorPanel() {
   }, [openTabs]);
 
   const showEmpty = !activeFile || activeFile.type !== "file";
-  const tabs = openTabs.filter((p) => findNode(files, p)).map((p) => ({ path: p, name: nameOf(p) }));
+  const tabs = openTabs.filter((p) => findNode(files, p) ?? findNode(runtimeFiles, p)).map((p) => ({ path: p, name: nameOf(p) }));
   const activePath = showEmpty ? null : activeFile.path;
 
   return (
@@ -114,7 +115,7 @@ export default function EditorPanel() {
         <EmptyState />
       ) : (
         <>
-          <Breadcrumbs path={activeFile.path} />
+          <Breadcrumbs path={activeFile.path} readOnly={activeFile.readOnly === true} />
           <div className="min-h-0 flex-1">
             <Editor
               height="100%"
@@ -136,6 +137,7 @@ export default function EditorPanel() {
                 document.fonts?.ready.then(() => monaco.editor.remeasureFonts());
               }}
               options={{
+                readOnly: activeFile.readOnly === true,
                 automaticLayout: true,
                 fontFamily,
                 fontSize: 14,
