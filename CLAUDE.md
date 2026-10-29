@@ -53,6 +53,8 @@ See `docs/setup/environment.md` for the full list. Key vars:
 
 Copied from https://github.com/nextlevelbuilder/ui-ux-pro-max-skill (MIT). Design rules for this app are in `docs/design-system.md`.
 
+**Rule:** before any UI or UX change (pages, components, styles, layout, theme), invoke the `ui-ux-pro-max` skill and follow `docs/design-system.md`. Use semantic tokens only. Finish with the checklist in that guide.
+
 - `ui-ux-pro-max` - styles, palettes, font pairs, UX rules and checklist. Use it before UI work.
 - `design-system`, `ui-styling` - token architecture; Tailwind and shadcn/ui guidance (Veda uses Tailwind 4 without shadcn).
 - `brand`, `design`, `slides`, `banner-design` - brand voice, logos, slides, banners.
