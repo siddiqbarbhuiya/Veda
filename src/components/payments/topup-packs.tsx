@@ -1,5 +1,7 @@
 "use client";
 
+import { Badge } from "@/components/ui/badge";
+
 export type TopupPack = {
   name: string;
   amountPaise: number;
@@ -17,6 +19,28 @@ export function formatRupees(paise: number): string {
   return `₹${(paise / 100).toFixed(paise % 100 === 0 ? 0 : 2)}`;
 }
 
+export function PackBody({ pack }: { pack: TopupPack }) {
+  return (
+    <>
+      <span className="flex items-center justify-between gap-2 text-sm text-fg-2">
+        {pack.name}
+        {pack.name === "Standard" ? <Badge tone="accent">Popular</Badge> : null}
+      </span>
+      <span className="tnum mt-1 block font-display text-2xl font-semibold tracking-[-0.02em] text-fg">
+        {formatRupees(pack.amountPaise)}
+      </span>
+      <span className="tnum mt-1 block text-caption text-fg-3">
+        {formatRupees(pack.creditPaise)} credit ({pack.creditPaise} paise)
+      </span>
+      {pack.bonusPaise > 0 ? (
+        <span className="mt-2 block">
+          <Badge tone="success">+{formatRupees(pack.bonusPaise)} bonus</Badge>
+        </span>
+      ) : null}
+    </>
+  );
+}
+
 export default function TopupPacks({
   onSelect,
   disabled = false,
@@ -32,16 +56,9 @@ export default function TopupPacks({
           type="button"
           disabled={disabled}
           onClick={() => onSelect(pack)}
-          className="rounded-lg border border-neutral-700 bg-neutral-900 p-4 text-left hover:border-emerald-500 disabled:opacity-50"
+          className="min-h-11 rounded-lg border border-line-strong bg-elevated p-4 text-left transition-colors duration-150 hover:border-accent-text disabled:opacity-50"
         >
-          <div className="text-sm text-neutral-400">{pack.name}</div>
-          <div className="text-2xl font-semibold">{formatRupees(pack.amountPaise)}</div>
-          <div className="mt-1 text-xs text-neutral-400">
-            {formatRupees(pack.creditPaise)} credit ({pack.creditPaise} paise)
-          </div>
-          {pack.bonusPaise > 0 && (
-            <div className="mt-1 text-xs text-emerald-400">+{formatRupees(pack.bonusPaise)} bonus</div>
-          )}
+          <PackBody pack={pack} />
         </button>
       ))}
     </div>

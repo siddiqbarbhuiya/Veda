@@ -1,13 +1,25 @@
 import Link from "next/link";
+import { Logo } from "@/components/ui/logo";
+import { buttonStyles } from "@/components/ui/button";
 
 export default function NotFound() {
   return (
-    <main className="flex flex-1 flex-col items-center justify-center gap-4 p-8 text-center">
-      <h1 className="text-5xl font-bold">404</h1>
-      <p className="text-slate-600">This page does not exist.</p>
-      <Link href="/" className="rounded-full bg-slate-900 px-6 py-2 font-medium text-white">
-        Back to home
+    <main className="flex flex-1 flex-col items-center justify-center gap-6 px-4 py-16 text-center">
+      <Link href="/" aria-label="Veda home" className="rounded-md">
+        <Logo />
       </Link>
+      <h1 className="font-display text-[clamp(96px,22vw,200px)] font-bold leading-none tracking-[-0.04em] text-accent-text">
+        404
+      </h1>
+      <p className="max-w-md text-lg text-fg-2">We could not find this page. It may have moved, or the link is wrong.</p>
+      <div className="flex flex-col gap-3 sm:flex-row">
+        <Link href="/" className={buttonStyles({ variant: "primary", size: "lg" })}>
+          Back to home
+        </Link>
+        <Link href="/dashboard" className={buttonStyles({ variant: "ghost", size: "lg" })}>
+          Go to dashboard
+        </Link>
+      </div>
     </main>
   );
 }

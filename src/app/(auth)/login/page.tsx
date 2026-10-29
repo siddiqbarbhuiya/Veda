@@ -1,35 +1,115 @@
 "use client";
 
+import { useState } from "react";
+import type { ReactNode } from "react";
+import { AlertCircle, CreditCard, Globe, KeyRound } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Logo } from "@/components/ui/logo";
+import { ThemeToggle } from "@/components/ui/theme";
+import { GitHubGlyph, GoogleGlyph } from "@/components/dashboard/provider-icons";
 import { createBrowserClient } from "@/lib/supabase/client";
 
 type Provider = "google" | "github";
 
+const TRUST_POINTS = [
+  { icon: KeyRound, title: "Encrypted keys", text: "Your API keys are encrypted before they are stored." },
+  { icon: CreditCard, title: "Pay in paise", text: "You pay only for what you use, in rupees." },
+  { icon: Globe, title: "Runs in your browser", text: "Write and run code with nothing to install." },
+];
+
 export default function LoginPage() {
+  const [pending, setPending] = useState<Provider | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
   async function signIn(provider: Provider) {
-    const supabase = createBrowserClient();
-    await supabase.auth.signInWithOAuth({
-      provider,
-      options: { redirectTo: `${window.location.origin}/auth/callback` },
-    });
+    setPending(provider);
+    setError(null);
+    try {
+      const supabase = createBrowserClient();
+      const { error: authError } = await supabase.auth.signInWithOAuth({
+        provider,
+        options: { redirectTo: `${window.location.origin}/auth/callback` },
+      });
+      if (authError) {
+        setError(authError.message || "Sign-in failed. Try again.");
+        setPending(null);
+      }
+      // On success the browser redirects to the provider, so the loading state stays.
+    } catch {
+      setError("Sign-in failed. Try again.");
+      setPending(null);
+    }
   }
 
+  const providerButton = (provider: Provider, glyph: ReactNode, label: string) => (
+    <Button
+      type="button"
+      variant="secondary"
+      size="lg"
+      className="w-full min-h-12"
+      loading={pending === provider}
+      disabled={pending !== null}
+      leadingIcon={glyph}
+      onClick={() => signIn(provider)}
+    >
+      {label}
+    </Button>
+  );
+
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center gap-4">
-      <h1 className="text-2xl font-semibold">Sign in to Veda</h1>
-      <button
-        type="button"
-        onClick={() => signIn("google")}
-        className="rounded border px-4 py-2"
-      >
-        Sign in with Google
-      </button>
-      <button
-        type="button"
-        onClick={() => signIn("github")}
-        className="rounded border px-4 py-2"
-      >
-        Sign in with GitHub
-      </button>
-    </main>
+    <div className="min-h-dvh bg-app text-fg lg:grid lg:grid-cols-2">
+      <aside className="relative hidden flex-col justify-between border-r border-line bg-panel p-12 lg:flex">
+        <Logo size={32} />
+        <div className="max-w-md">
+          <p className="font-display text-4xl font-semibold leading-[1.1] tracking-[-0.02em]">
+            Code with AI in your browser. Bring your own key.
+          </p>
+          <ul className="mt-10 space-y-6">
+            {TRUST_POINTS.map(({ icon: Icon, title, text }) => (
+              <li key={title} className="flex gap-4">
+                <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-accent-subtle text-accent-text">
+                  <Icon size={20} aria-hidden="true" />
+                </span>
+                <div>
+                  <p className="text-sm font-medium text-fg">{title}</p>
+                  <p className="text-sm text-fg-2">{text}</p>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+        <p className="text-caption text-fg-3">Built for students in India.</p>
+      </aside>
+
+      <main className="relative flex min-h-dvh items-center justify-center px-4 py-16 lg:min-h-0">
+        <div className="absolute right-4 top-4">
+          <ThemeToggle />
+        </div>
+        <div className="w-full max-w-sm animate-slide-up">
+          <Logo size={32} className="mb-8 lg:hidden" />
+          <div className="rounded-xl border border-line-strong bg-panel p-6 shadow-e1 sm:p-8">
+            <h1 className="font-display text-2xl font-semibold tracking-[-0.015em]">Sign in to Veda</h1>
+            <p className="mt-1.5 text-sm text-fg-2">Choose an account to continue.</p>
+
+            <div className="mt-6 flex flex-col gap-3">
+              {providerButton("google", <GoogleGlyph />, "Sign in with Google")}
+              {providerButton("github", <GitHubGlyph />, "Sign in with GitHub")}
+            </div>
+
+            {error ? (
+              <p
+                role="alert"
+                className="mt-4 flex items-start gap-2 rounded-md bg-danger-subtle p-3 text-sm text-danger"
+              >
+                <AlertCircle size={16} aria-hidden="true" className="mt-0.5 shrink-0" />
+                {error}
+              </p>
+            ) : null}
+
+            <p className="mt-6 text-caption text-fg-3">We only read your name and email.</p>
+          </div>
+        </div>
+      </main>
+    </div>
   );
 }

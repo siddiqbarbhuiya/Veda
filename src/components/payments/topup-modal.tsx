@@ -1,7 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import TopupPacks, { type TopupPack } from "./topup-packs";
+import { AlertCircle, CheckCircle2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Dialog } from "@/components/ui/dialog";
+import { cn } from "@/lib/cn";
+import PackRadioGroup from "./pack-radio-group";
+import TopupPacks, { TOPUP_PACKS, formatRupees, type TopupPack } from "./topup-packs";
 
 type RazorpayOptions = {
   key: string;
@@ -30,19 +35,33 @@ function loadCheckoutScript(): Promise<boolean> {
   });
 }
 
+const DEFAULT_PACK = TOPUP_PACKS[1];
+
 export default function TopupModal({
   open,
   onClose,
   onSuccess,
+  initialAmountPaise,
 }: {
   open: boolean;
   onClose: () => void;
   onSuccess?: () => void;
+  /** When set, the dialog shows the packs as a selection with this one chosen, and a pay button. */
+  initialAmountPaise?: number;
 }) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
+  const [picked, setPicked] = useState<number | null>(null);
 
-  if (!open) return null;
+  const confirmMode = initialAmountPaise !== undefined;
+  const selectedAmount = picked ?? initialAmountPaise ?? DEFAULT_PACK.amountPaise;
+  const selectedPack = TOPUP_PACKS.find((p) => p.amountPaise === selectedAmount) ?? DEFAULT_PACK;
+
+  const close = () => {
+    setMessage(null);
+    setPicked(null);
+    onClose();
+  };
 
   const select = async (pack: TopupPack) => {
     setBusy(true);
@@ -88,33 +107,55 @@ export default function TopupModal({
   };
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label="Add credits"
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4"
-      onClick={onClose}
+    <Dialog
+      open={open}
+      onClose={close}
+      title="Add credits"
+      ariaLabel="Add credits"
+      description="Choose an amount. Credits are added to your wallet."
+      className="sm:w-[min(40rem,calc(100vw-2rem))]"
     >
-      <div
-        className="w-full max-w-xl rounded-lg border border-neutral-700 bg-neutral-950 p-5 text-neutral-200"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-lg font-semibold">Add credits</h2>
-          <button aria-label="Close" onClick={onClose} className="text-neutral-400 hover:text-white">
-            {"✕"}
-          </button>
-        </div>
-        <TopupPacks onSelect={select} disabled={busy} />
-        {message && (
-          <p
-            role="status"
-            className={`mt-3 text-sm ${message.kind === "ok" ? "text-emerald-400" : "text-red-400"}`}
+      {confirmMode ? (
+        <div className="space-y-4">
+          <span id="topup-pack-label" className="sr-only">
+            Top-up amount
+          </span>
+          <PackRadioGroup
+            name="topup-modal-pack"
+            labelledBy="topup-pack-label"
+            value={selectedAmount}
+            onChange={setPicked}
+            disabled={busy}
+          />
+          <Button
+            variant="primary"
+            size="lg"
+            className="w-full"
+            loading={busy}
+            onClick={() => void select(selectedPack)}
           >
-            {message.text}
-          </p>
-        )}
-      </div>
-    </div>
+            Pay {formatRupees(selectedPack.amountPaise)}
+          </Button>
+        </div>
+      ) : (
+        <TopupPacks onSelect={select} disabled={busy} />
+      )}
+      {message ? (
+        <p
+          role="status"
+          className={cn(
+            "mt-4 flex items-start gap-2 text-sm",
+            message.kind === "ok" ? "text-success" : "text-danger",
+          )}
+        >
+          {message.kind === "ok" ? (
+            <CheckCircle2 size={16} aria-hidden="true" className="mt-0.5 shrink-0" />
+          ) : (
+            <AlertCircle size={16} aria-hidden="true" className="mt-0.5 shrink-0" />
+          )}
+          {message.text}
+        </p>
+      ) : null}
+    </Dialog>
   );
 }

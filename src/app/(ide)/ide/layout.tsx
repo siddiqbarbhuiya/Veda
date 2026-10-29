@@ -17,7 +17,7 @@ export default function IdeRouteLayout({ children }: { children: React.ReactNode
 
   return (
     <FileSystemContext.Provider value={fs}>
-      <div className="h-screen w-screen overflow-hidden bg-neutral-950 text-neutral-200">{children}</div>
+      <div className="h-dvh w-screen overflow-hidden bg-app text-fg">{children}</div>
     </FileSystemContext.Provider>
   );
 }

@@ -1,6 +1,10 @@
 "use client";
 
 import { useState } from "react";
+import { AlertCircle, CheckCircle2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Field, Input, Select } from "@/components/ui/field";
+import { cn } from "@/lib/cn";
 
 const PROVIDERS = [
   { value: "openai", label: "OpenAI" },
@@ -41,38 +45,62 @@ export default function KeyForm({ onSaved }: { onSaved?: () => void }) {
     }
   };
 
-  const field = "w-full rounded border border-neutral-700 bg-neutral-900 px-2 py-1.5 text-sm";
-
   return (
-    <form onSubmit={submit} className="space-y-3">
-      <label className="block text-sm">
-        <span className="mb-1 block text-neutral-400">Provider</span>
-        <select value={provider} onChange={(e) => setProvider(e.target.value)} className={field}>
-          {PROVIDERS.map((p) => (
-            <option key={p.value} value={p.value}>{p.label}</option>
-          ))}
-        </select>
-      </label>
-      <label className="block text-sm">
-        <span className="mb-1 block text-neutral-400">API key</span>
-        <input type="password" required autoComplete="off" value={key} onChange={(e) => setKey(e.target.value)} className={field} />
-      </label>
-      <label className="block text-sm">
-        <span className="mb-1 block text-neutral-400">Label (optional)</span>
-        <input type="text" value={label} onChange={(e) => setLabel(e.target.value)} className={field} />
-      </label>
-      <button
+    <form onSubmit={submit} className="space-y-4">
+      <Field label="Provider" hint="Saving again for the same provider replaces the old key.">
+        {(props) => (
+          <Select {...props} value={provider} onChange={(e) => setProvider(e.target.value)}>
+            {PROVIDERS.map((p) => (
+              <option key={p.value} value={p.value}>
+                {p.label}
+              </option>
+            ))}
+          </Select>
+        )}
+      </Field>
+      <Field label="API key" hint="Encrypted before it is stored. You cannot view it again.">
+        {(props) => (
+          <Input
+            {...props}
+            type="password"
+            required
+            autoComplete="off"
+            value={key}
+            onChange={(e) => setKey(e.target.value)}
+          />
+        )}
+      </Field>
+      <Field label="Label (optional)">
+        {(props) => (
+          <Input {...props} type="text" value={label} onChange={(e) => setLabel(e.target.value)} />
+        )}
+      </Field>
+      <Button
         type="submit"
-        disabled={busy || key.trim() === ""}
-        className="rounded bg-emerald-600 px-3 py-1.5 text-sm text-white hover:bg-emerald-500 disabled:opacity-50"
+        variant="primary"
+        size="lg"
+        className="w-full sm:h-9 sm:w-auto sm:text-sm"
+        loading={busy}
+        disabled={key.trim() === ""}
       >
         {busy ? "Saving..." : "Save key"}
-      </button>
-      {message && (
-        <p role="status" className={`text-sm ${message.kind === "ok" ? "text-emerald-400" : "text-red-400"}`}>
+      </Button>
+      {message ? (
+        <p
+          role="status"
+          className={cn(
+            "flex items-start gap-2 text-sm",
+            message.kind === "ok" ? "text-success" : "text-danger",
+          )}
+        >
+          {message.kind === "ok" ? (
+            <CheckCircle2 size={16} aria-hidden="true" className="mt-0.5 shrink-0" />
+          ) : (
+            <AlertCircle size={16} aria-hidden="true" className="mt-0.5 shrink-0" />
+          )}
           {message.text}
         </p>
-      )}
+      ) : null}
     </form>
   );
 }
