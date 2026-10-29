@@ -27,6 +27,25 @@ describe("LocalProvider", () => {
     expect(() => new LocalProvider()).toThrow(/development only/);
   });
 
+  it("makes a fresh handle each time, and finds the sandbox again from a new provider (a restart)", async () => {
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), "veda-lp-"));
+    const a = await new LocalProvider(base).acquire("u7");
+    const restarted = new LocalProvider(base);
+    const b = await restarted.acquire("u7");
+    expect(b).not.toBe(a);
+    expect(b.id).toBe(a.id);
+    const c = await restarted.connect(a.id);
+    expect(c?.userId).toBe("u7");
+  });
+
+  it("does not hand one student the sandbox of another, and refuses unsafe ids", async () => {
+    const p = new LocalProvider(fs.mkdtempSync(path.join(os.tmpdir(), "veda-lp-")));
+    const a = await p.acquire("u1");
+    const b = await p.acquire("u2");
+    expect(a.id).not.toBe(b.id);
+    for (const bad of ["../x", "a/b", "", "a..b"]) expect(await p.connect(bad)).toBeNull();
+  });
+
   it("gives one sandbox to a student and finds it by id", async () => {
     const p = new LocalProvider(fs.mkdtempSync(path.join(os.tmpdir(), "veda-lp-")));
     const a = await p.acquire("u1");

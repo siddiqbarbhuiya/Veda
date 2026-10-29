@@ -33,6 +33,21 @@ talks to the Veda proxy, and the proxy adds your key.
 A deployed Veda cannot reach `localhost` on your computer. If OmniRoute runs on your own computer, give it a public address
 with a tunnel (for example `cloudflared tunnel --url http://localhost:20128`) and save the tunnel address.
 
+## Make it fast
+
+Claude Code makes many model calls for one task, so speed depends on the models and on rate limits.
+
+- **Spread the combo over different providers and accounts.** Free models of one provider (for example all the `:free`
+  models on OpenRouter) share ONE account limit. When it is used up, every model in the combo fails together and the
+  fallback does nothing. Put models from separate providers in the combo, each with its own key: for example
+  Groq, Cerebras, Google Gemini and OpenRouter. Each has its own limit.
+- **Put the fastest model first** and choose priority order. A paid fast model (a Haiku or Flash class model) is
+  usually the quickest and the most reliable at tool calls.
+- Veda already keeps each call small: Claude Code runs with 7 tools, a short instruction and no extended thinking
+  (about 5,000 input tokens a call, down from 15,000).
+- Measured with free OpenRouter models only: calls that were answered took about 7 to 30 seconds, and a rate-limited
+  request waited about 70 seconds inside OmniRoute before it failed. Most of the waiting was rate limits.
+
 ## Protect your OmniRoute
 
 CAUTION: OmniRoute listens on all network interfaces by default, with no API key needed. Anybody who can reach it can

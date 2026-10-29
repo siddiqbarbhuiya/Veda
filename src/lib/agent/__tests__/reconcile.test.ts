@@ -84,6 +84,18 @@ describe("reconcileRuns", () => {
     expect(byKey[`${h.id}.bbbb`]).toBeUndefined();
   });
 
+  it("closes a run with no events after two minutes, but not a brand new one", async () => {
+    const sandboxes = new FakeSandboxProvider();
+    const h = await sandboxes.acquire("u1");
+    const { admin, updates } = fakeAdmin([
+      { run_key: `${h.id}.dead`, status: "running", created_at: new Date(Date.now() - 5 * 60_000).toISOString() },
+      { run_key: `${h.id}.new`, status: "running", created_at: new Date(Date.now() - 20_000).toISOString() },
+    ]);
+    expect(await reconcileRuns(admin, sandboxes, "u1")).toBe(1);
+    expect(updates.map((u) => u.run_key)).toEqual([`${h.id}.dead`]);
+    expect(updates[0].patch).toMatchObject({ status: "error" });
+  });
+
   it("returns 0 when the query fails", async () => {
     const admin = {
       from: () => {

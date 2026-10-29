@@ -91,14 +91,14 @@ export async function reconcileRuns(
 ): Promise<number> {
   const { data, error } = await admin
     .from("agent_runs")
-    .select("run_key")
+    .select("run_key, created_at")
     .eq("user_id", userId)
     .eq("status", "running")
     .gte("created_at", new Date(now - DAY_MS).toISOString())
     .limit(5);
   if (error || !data) return 0;
   let closed = 0;
-  for (const { run_key } of data) {
+  for (const { run_key, created_at } of data) {
     const sandboxId = sandboxIdOf(run_key);
     const handle = sandboxId ? await sandboxes.connect(sandboxId).catch(() => null) : null;
     const t: RunTally = { input_tokens: 0, output_tokens: 0, failed: false };
@@ -111,7 +111,11 @@ export async function reconcileRuns(
       } catch {
         continue;
       }
-      if (!events.some((e) => e.type === "done")) continue; // still running
+      if (!events.some((e) => e.type === "done")) {
+        // A run that has written nothing for two minutes is dead (killed, or its folder is gone). Close it.
+        if (events.length > 0 || now - new Date(created_at).getTime() < 120_000) continue; // still running
+        t.failed = true;
+      }
       for (const e of events) tally(t, e);
     }
     await finishRunRow(admin, run_key, t, now);

@@ -32,6 +32,20 @@ describe("runner mode mapping", () => {
   });
 });
 
+describe("lean runner (fewer tokens per call)", () => {
+  it("lists only the tools a student needs, and ExitPlanMode only in plan mode", () => {
+    expect(RUNNER_SOURCE).toContain('["Read", "Write", "Edit", "Glob", "Grep", "Bash", "TodoWrite"].concat(MODE === "plan" ? ["ExitPlanMode"] : [])');
+    expect(RUNNER_SOURCE).toContain("tools: TOOLS,");
+  });
+  it("uses a short custom system prompt instead of the full preset, and turns thinking off", () => {
+    expect(RUNNER_SOURCE).toContain("systemPrompt: SYSTEM_PROMPT,");
+    expect(RUNNER_SOURCE).not.toContain('preset: "claude_code"');
+    expect(RUNNER_SOURCE).toContain('thinking: { type: "disabled" }');
+    const m = RUNNER_SOURCE.match(/const SYSTEM_PROMPT =([\s\S]*?);\n/);
+    expect(m![1].length).toBeLessThan(900); // about 200 tokens
+  });
+});
+
 describe("runner tool limits", () => {
   it("blocks the tools that reach other sessions on the machine", () => {
     expect(RUNNER_SOURCE).toContain('"ListAgents", "SendMessage"');

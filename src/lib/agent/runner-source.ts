@@ -136,11 +136,14 @@ async function canUseTool(toolName, toolInput) {
   return { behavior: "deny", message: "The student did not answer in time." };
 }
 
-const APPEND =
-  "You run inside Veda, a browser code editor for students. The project is the current folder. " +
-  "Do not start development servers or long-running processes. " +
-  "The student reviews your file changes before they apply, so keep changes focused. " +
-  "Explain what you did in short, plain sentences.";
+// A short prompt on purpose. The full Claude Code prompt is about 10,000 tokens and every call pays for it,
+// which is slow and hits the limits of free models. This one keeps the rules that matter in Veda.
+const SYSTEM_PROMPT =
+  "You are Claude Code, a coding agent inside Veda, a browser code editor for students. " +
+  "The project is the current folder. Make the changes the student asks for by reading, editing and writing files. " +
+  "Use short, plain sentences. Keep changes small and focused: the student reviews every file change before it applies. " +
+  "Do not start development servers or other long-running processes. " +
+  "When you are done, say in one or two sentences what you changed.";
 
 async function main() {
   emit({ type: "status", state: "running" });
@@ -161,17 +164,23 @@ async function main() {
   //   plan: reads and plans, then asks to leave plan mode   auto: nothing asks (the sandbox is the safety net)
   const MODE = input.mode || "edits";
   const READ_TOOLS = ["Read", "Glob", "Grep", "TodoWrite"];
+  // Only the tools a student needs. Every tool adds its description to every call, and the rest (agents,
+  // web, scheduling, messaging) are not used here.
+  const TOOLS = ["Read", "Write", "Edit", "Glob", "Grep", "Bash", "TodoWrite"].concat(MODE === "plan" ? ["ExitPlanMode"] : []);
   const options = {
     cwd: PROJECT,
     model: input.model,
     maxTurns: input.maxTurns,
     permissionMode: MODE === "manual" ? "default" : MODE === "plan" ? "plan" : MODE === "auto" ? "bypassPermissions" : "acceptEdits",
+    tools: TOOLS,
     allowedTools: MODE === "edits" || MODE === "auto" ? READ_TOOLS.concat(["Edit", "Write"]) : READ_TOOLS,
     // ListAgents and SendMessage would let the agent see and message other Claude sessions on the same machine.
     disallowedTools: ["WebSearch", "WebFetch", "ListAgents", "SendMessage"],
     canUseTool: canUseTool,
     settingSources: ["project"],
-    systemPrompt: { type: "preset", preset: "claude_code", append: APPEND },
+    systemPrompt: SYSTEM_PROMPT,
+    // No extended thinking: it adds a slow extra step, and most models behind OpenRouter or OmniRoute do not support it.
+    thinking: { type: "disabled" },
     abortController: ac,
     env: Object.assign({}, process.env, { CLAUDE_AGENT_SDK_CLIENT_APP: "veda/1.0" }),
   };

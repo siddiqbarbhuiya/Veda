@@ -2,11 +2,13 @@ import type { SandboxProvider } from "./sandbox";
 import { E2BProvider } from "./e2b-provider";
 import { FakeSandboxProvider } from "./fake-provider";
 import { LocalProvider } from "./local-provider";
+import { RUNNER_SOURCE } from "./runner-source";
 
 // One instance for the whole server process. The fake provider keeps its runs in memory.
 // It lives on globalThis: in `next dev` a route module can be loaded again after an edit, and a module-level
 // variable would then lose the sandbox of a run that is still going (its permission answers would give 404).
 // The kind is saved with it, so a changed setting (AGENT_SANDBOX or E2B_API_KEY) builds a new provider.
+// The size of the runner code is part of the kind too, so an edit to the runner is used by the next run.
 const store = globalThis as unknown as { __vedaSandbox?: { kind: string; provider: SandboxProvider | null } };
 
 function kindFromEnv(): "local" | "fake" | "e2b" | "none" {
@@ -22,14 +24,14 @@ function kindFromEnv(): "local" | "fake" | "e2b" | "none" {
  * Null means Claude Code is not set up on this server.
  */
 export function getSandboxProvider(): SandboxProvider | null {
-  const kind = kindFromEnv();
+  const kind = `${kindFromEnv()}:${RUNNER_SOURCE.length}`;
   if (store.__vedaSandbox && store.__vedaSandbox.kind === kind) return store.__vedaSandbox.provider;
   const provider =
-    kind === "local"
+    kind.startsWith("local")
       ? new LocalProvider()
-      : kind === "fake"
+      : kind.startsWith("fake")
         ? new FakeSandboxProvider(undefined, 400) // drips events so the UI shows the run as it goes
-        : kind === "e2b"
+        : kind.startsWith("e2b")
           ? new E2BProvider()
           : null;
   store.__vedaSandbox = { kind, provider };
@@ -38,5 +40,5 @@ export function getSandboxProvider(): SandboxProvider | null {
 
 /** Test helper. `undefined` forgets the provider, so the next call builds it from the environment. */
 export function setSandboxProviderForTests(p: SandboxProvider | null | undefined): void {
-  store.__vedaSandbox = p === undefined ? undefined : { kind: kindFromEnv(), provider: p };
+  store.__vedaSandbox = p === undefined ? undefined : { kind: `${kindFromEnv()}:${RUNNER_SOURCE.length}`, provider: p };
 }

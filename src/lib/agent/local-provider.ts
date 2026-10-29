@@ -110,33 +110,52 @@ class LocalHandle implements SandboxHandle {
   }
 }
 
-// On globalThis so a dev hot reload keeps the sandboxes of runs that are still going.
-const store = globalThis as unknown as { __vedaLocalSandboxes?: Map<string, LocalHandle> };
-
 /**
  * Runs the real Claude Agent SDK as a process on THIS machine, in a temporary folder.
  * For local development only: the agent can run shell commands as the user who started the server.
  * Refuses to start when NODE_ENV is "production".
+ *
+ * The owner of each sandbox is a file in its folder (`owner`). Nothing is kept in memory, so a dev hot reload or a
+ * server restart never loses a sandbox, and a fresh handle always uses the newest code (for example a new runner).
  */
 export class LocalProvider implements SandboxProvider {
-  private byId: Map<string, LocalHandle>;
   constructor(private base: string = localBaseDir()) {
     if (process.env.NODE_ENV === "production") {
       throw new Error("AGENT_SANDBOX=local is for development only and is refused in production.");
     }
-    store.__vedaLocalSandboxes ??= new Map();
-    this.byId = store.__vedaLocalSandboxes;
+  }
+
+  private root(id: string) {
+    return path.join(this.base, "sandboxes", rel(id));
+  }
+
+  private async ownerOf(id: string): Promise<string | null> {
+    try {
+      return (await fs.readFile(path.join(this.root(id), "owner"), "utf8")).trim() || null;
+    } catch {
+      return null;
+    }
   }
 
   async acquire(userId: string): Promise<SandboxHandle> {
-    for (const h of this.byId.values()) if (h.userId === userId) return h;
+    let ids: string[] = [];
+    try {
+      ids = await fs.readdir(path.join(this.base, "sandboxes"));
+    } catch {
+      /* no sandbox yet */
+    }
+    for (const id of ids) {
+      if (SAFE_ID.test(id) && (await this.ownerOf(id)) === userId) return new LocalHandle(id, userId, this.base);
+    }
     const id = `local${Math.random().toString(36).slice(2, 8)}`;
-    const h = new LocalHandle(id, userId, this.base);
-    this.byId.set(id, h);
-    return h;
+    await fs.mkdir(this.root(id), { recursive: true });
+    await fs.writeFile(path.join(this.root(id), "owner"), userId);
+    return new LocalHandle(id, userId, this.base);
   }
 
   async connect(sandboxId: string): Promise<SandboxHandle | null> {
-    return this.byId.get(sandboxId) ?? null;
+    if (!SAFE_ID.test(sandboxId) || sandboxId.includes("..")) return null;
+    const owner = await this.ownerOf(sandboxId);
+    return owner ? new LocalHandle(sandboxId, owner, this.base) : null;
   }
 }
