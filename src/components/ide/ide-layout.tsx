@@ -240,6 +240,7 @@ function Shell({ tablet }: { tablet: boolean }) {
   useIdeEvent("veda:open-dialog", ({ dialog }) => {
     if (dialog === "templates") setTemplatesOpen(true);
     else if (dialog === "projects") setProjectsOpen(true);
+    else if (dialog === "export") setExportOpen(true);
     else setPackagesOpen(true);
   });
 

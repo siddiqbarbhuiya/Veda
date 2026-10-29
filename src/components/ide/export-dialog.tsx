@@ -40,9 +40,10 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
   const [phase, setPhase] = useState<Phase>("idle");
   const [filesRead, setFilesRead] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<{ files: number; bytes: number; zipBytes: number; runtime: boolean } | null>(null);
+  const [result, setResult] = useState<{ files: number; bytes: number; zipBytes: number; runtime: boolean; fileName: string } | null>(null);
   const abort = useRef<AbortController | null>(null);
   const primaryRef = useRef<HTMLButtonElement>(null);
+  const actionsRef = useRef<HTMLDivElement>(null);
   const empty = flattenFileNodes(files).length === 0;
 
   const busy = phase === "reading" || phase === "zipping";
@@ -53,6 +54,11 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
     const id = requestAnimationFrame(() => primaryRef.current?.focus());
     return () => cancelAnimationFrame(id);
   }, [open]);
+
+  // The result is long. Show it, and the buttons under it, when the download ends.
+  useEffect(() => {
+    if (phase === "done") actionsRef.current?.scrollIntoView?.({ block: "end" });
+  }, [phase]);
 
   function cancel() {
     abort.current?.abort();
@@ -96,8 +102,9 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
       setPhase("zipping");
       const zipped = await createZip(entries, projectName);
       if (abort.current !== controller) return;
-      download(zipped, exportFileName(projectName));
-      setResult({ files: countFiles(entries), bytes: totalBytes(entries), zipBytes: zipped.byteLength, runtime: wc !== null });
+      const fileName = exportFileName(projectName);
+      download(zipped, fileName);
+      setResult({ files: countFiles(entries), bytes: totalBytes(entries), zipBytes: zipped.byteLength, runtime: wc !== null, fileName });
       setPhase("done");
     } catch (err) {
       // A newer run or a cancel owns the state now. Do not touch it.
@@ -111,8 +118,8 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
     <Dialog
       open={open}
       onClose={close}
-      title="Export project"
-      description="Download all your files and folders as one ZIP file."
+      title="Export project as ZIP"
+      description={`Download the whole project "${projectName}" (all files and folders) as one ZIP file.`}
       ariaLabel="Export project"
     >
       <div className="space-y-4">
@@ -165,14 +172,35 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
         ) : null}
 
         {phase === "done" && result ? (
-          <p role="status" className="flex items-start gap-2 text-sm text-success">
-            <CheckCircle2 size={16} className="mt-0.5 shrink-0" aria-hidden="true" />
-            <span>
-              ZIP downloaded: {result.files.toLocaleString("en-IN")} files, {formatBytes(result.bytes)} (ZIP size{" "}
-              {formatBytes(result.zipBytes)}).
+          <div role="status" className="space-y-2 rounded-lg border border-success/30 bg-success-subtle p-3 text-sm">
+            <p className="flex items-start gap-2 font-medium text-success">
+              <CheckCircle2 size={16} className="mt-0.5 shrink-0" aria-hidden="true" />
+              <span className="wrap-anywhere">
+                Saved as <span className="font-mono">{result.fileName}</span>
+              </span>
+            </p>
+            <p className="text-fg-2">
+              {result.files.toLocaleString("en-IN")} files, {formatBytes(result.bytes)} (ZIP size {formatBytes(result.zipBytes)}).
               {result.runtime ? "" : " The Node.js runtime was not running, so only editor files are included."}
-            </span>
-          </p>
+            </p>
+            <div className="text-fg">
+              <p className="font-medium">Where is the file?</p>
+              <ul className="mt-1 list-disc space-y-1 pl-5 text-fg-2">
+                <li>Your browser saved it. Veda cannot see the folder. It is usually your <b>Downloads</b> folder.</li>
+                <li>
+                  Chrome or Edge: press <kbd className="rounded border border-line-strong px-1 font-mono text-caption">Ctrl</kbd>+
+                  <kbd className="rounded border border-line-strong px-1 font-mono text-caption">J</kbd>, then click <b>Show in folder</b> beside the file.
+                </li>
+                <li>
+                  Firefox: press <kbd className="rounded border border-line-strong px-1 font-mono text-caption">Ctrl</kbd>+
+                  <kbd className="rounded border border-line-strong px-1 font-mono text-caption">Shift</kbd>+
+                  <kbd className="rounded border border-line-strong px-1 font-mono text-caption">Y</kbd>.
+                </li>
+                <li>Windows: right-click the ZIP file and choose <b>Extract All</b> to open the folder inside.</li>
+                <li>To choose the folder each time, turn on &quot;Ask where to save each file&quot; in your browser download settings.</li>
+              </ul>
+            </div>
+          </div>
         ) : null}
 
         {phase === "error" && error ? (
@@ -182,7 +210,7 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
           </p>
         ) : null}
 
-        <div className="flex justify-end gap-2 pt-1">
+        <div ref={actionsRef} className="flex justify-end gap-2 pt-1">
           {busy ? (
             <Button variant="secondary" onClick={cancel}>
               Cancel

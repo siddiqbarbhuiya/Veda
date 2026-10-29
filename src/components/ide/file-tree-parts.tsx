@@ -2,7 +2,7 @@
 
 import { Fragment, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { FilePlus, FolderPlus, Pencil, Trash2 } from "lucide-react";
+import { Download, FilePlus, FolderPlus, Pencil, Trash2 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import type { FileNode } from "@/hooks/use-file-system";
 
@@ -104,6 +104,7 @@ export function TreeContextMenu({
   onNewFolder,
   onRename,
   onDelete,
+  onExport,
   onClose,
 }: {
   menu: MenuState;
@@ -111,6 +112,7 @@ export function TreeContextMenu({
   onNewFolder: () => void;
   onRename: () => void;
   onDelete: () => void;
+  onExport: () => void;
   onClose: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -164,7 +166,7 @@ export function TreeContextMenu({
       aria-label="File actions"
       onKeyDown={move}
       onContextMenu={(e) => e.preventDefault()}
-      className="fixed z-40 w-44 animate-fade-in rounded-lg border border-line-strong bg-overlay p-1 shadow-e2"
+      className="fixed z-40 w-56 animate-fade-in rounded-lg border border-line-strong bg-overlay p-1 shadow-e2"
       style={{ left: pos.x, top: pos.y }}
     >
       <button role="menuitem" className={item} onClick={onNewFile}>
@@ -184,6 +186,10 @@ export function TreeContextMenu({
           </button>
         </>
       )}
+      <div role="separator" className="my-1 h-px bg-line" />
+      <button role="menuitem" className={item} onClick={onExport} title="Download all files of this project as one ZIP file">
+        <Download size={14} aria-hidden="true" /> Export project as ZIP
+      </button>
     </div>
   );
 }

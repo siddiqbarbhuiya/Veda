@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
-import { ChevronRight, FilePlus, FolderPlus, LayoutTemplate } from "lucide-react";
+import { ChevronRight, Download, FilePlus, FolderPlus, LayoutTemplate } from "lucide-react";
 import { useFileSystem, findNode, type FileNode } from "@/hooks/use-file-system";
 import { validateName, validateNewPath } from "@/lib/files/validate-name";
 import { isRuntimePath } from "@/lib/files/runtime-view";
@@ -308,6 +308,9 @@ export default function FileTree() {
           <Button variant="ghost" size="icon-sm" className={iconBtn} aria-label="New project from a template" title="New project from a template" disabled={!loaded} onClick={() => emit("veda:open-dialog", { dialog: "templates" })}>
             <LayoutTemplate size={16} aria-hidden="true" />
           </Button>
+          <Button variant="ghost" size="icon-sm" className={iconBtn} aria-label="Export project as ZIP" title="Export the whole project as a ZIP file" disabled={!loaded} onClick={() => emit("veda:open-dialog", { dialog: "export" })}>
+            <Download size={16} aria-hidden="true" />
+          </Button>
         </div>
       </div>
       <div
@@ -334,6 +337,10 @@ export default function FileTree() {
           onDelete={() => {
             setToDelete(menu.node);
             setMenu(null);
+          }}
+          onExport={() => {
+            setMenu(null);
+            emit("veda:open-dialog", { dialog: "export" });
           }}
         />
       )}

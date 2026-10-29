@@ -148,3 +148,25 @@ describe("helpers", () => {
     expect(formatBytes(5 * 1024 * 1024)).toBe("5.0 MB");
   });
 });
+
+describe("createZip file validity", () => {
+  it("starts with the ZIP signature and keeps Indic names, empty folders and a project name with spaces", async () => {
+    const enc = new TextEncoder();
+    const bytes = await createZip(
+      [
+        { path: "src/", data: new Uint8Array(0) },
+        { path: "empty/", data: new Uint8Array(0) },
+        { path: "src/नमस्ते.py", data: enc.encode("print('hi')") },
+        { path: "README.md", data: enc.encode("# Hello") },
+      ],
+      "My Project"
+    );
+    // "PK" 0x03 0x04: the first local file header of every ZIP file.
+    expect(Array.from(bytes.slice(0, 4))).toEqual([0x50, 0x4b, 0x03, 0x04]);
+    const files = unzipSync(bytes);
+    expect(Object.keys(files).sort()).toEqual(
+      ["My Project/README.md", "My Project/empty/", "My Project/src/", "My Project/src/नमस्ते.py"].sort()
+    );
+    expect(new TextDecoder().decode(files["My Project/src/नमस्ते.py"])).toBe("print('hi')");
+  });
+});
