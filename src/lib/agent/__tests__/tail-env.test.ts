@@ -70,6 +70,7 @@ describe("buildRunnerEnv", () => {
     expect(env.ANTHROPIC_BASE_URL).toBe("https://veda.app/api/agent/llm");
     expect(env.ANTHROPIC_AUTH_TOKEN).toBe("tok");
     expect(env.ANTHROPIC_API_KEY).toBe("");
+    expect(env.CLAUDE_CONFIG_DIR).toBe("/home/user/.claude-veda");
     for (const k of ["ANTHROPIC_MODEL", "ANTHROPIC_DEFAULT_OPUS_MODEL", "ANTHROPIC_DEFAULT_SONNET_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL", "ANTHROPIC_SMALL_FAST_MODEL"]) {
       expect(env[k]).toBe("a/b:free");
     }

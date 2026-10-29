@@ -35,6 +35,8 @@ export function buildRunnerEnv(opts: {
     ANTHROPIC_DEFAULT_SONNET_MODEL: opts.model,
     ANTHROPIC_DEFAULT_HAIKU_MODEL: opts.model,
     ANTHROPIC_SMALL_FAST_MODEL: opts.model,
+    // A separate config folder, as in the OmniRoute setup guide, so no earlier login can override these settings.
+    CLAUDE_CONFIG_DIR: "/home/user/.claude-veda",
     CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
     DISABLE_TELEMETRY: "1",
     DISABLE_AUTOUPDATER: "1",
