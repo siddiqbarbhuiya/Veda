@@ -1,3 +1,5 @@
+import { REACT_FASTAPI_FILES } from "./react-fastapi";
+
 /** Project templates. A template is created in its own folder, so it never overwrites the student's files. */
 
 export type TemplateRuntime = "node" | "python";
@@ -104,7 +106,21 @@ const viteReact: Template = {
   },
 };
 
-export const TEMPLATES: Template[] = [python, nodeScript, viteReact, express];
+const reactFastapi: Template = {
+  id: "react-fastapi",
+  name: "React + FastAPI",
+  description: "A React front end and a Python FastAPI backend. Both run in your browser.",
+  runtime: "node",
+  entry: "backend/main.py",
+  run: [
+    { cmd: "npm", args: ["install"] },
+    { cmd: "npm", args: ["run", "dev"] },
+  ],
+  serves: true,
+  files: REACT_FASTAPI_FILES,
+};
+
+export const TEMPLATES: Template[] = [python, nodeScript, viteReact, express, reactFastapi];
 
 export function getTemplate(id: string): Template | undefined {
   return TEMPLATES.find((t) => t.id === id);

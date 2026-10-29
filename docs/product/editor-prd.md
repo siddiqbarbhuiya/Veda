@@ -69,7 +69,7 @@ The runtime is a licence decision, not a code problem.
 P0 (must have)
 1. One file store is the source of truth. The tree, the editor, the terminal runtime and the cloud read and write through it.
 2. Two-way sync between the runtime and the store. Changes from the terminal appear in the tree. Ignore `node_modules` and generated folders. Cap size at the 5 MB cloud limit.
-3. Templates: Vite React, Vite vanilla, Next.js (if the runtime allows), Express, Node script, Python.
+3. Templates: Vite React, Express, Node script, Python, and React + FastAPI (FastAPI runs in the browser through Pyodide). Next.js and Vite vanilla later.
 4. Package add for npm and for pure-Python pip packages.
 5. Live preview panel with a reload button and an open-in-new-tab link. The preview page has another origin, so the editor cannot read its browser console. Server output shows in the terminal. A console and an error overlay need a script that the template adds to the page (later).
 6. Search across files, tabs, a command palette, themes.
