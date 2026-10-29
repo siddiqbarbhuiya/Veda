@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
-import { readCombos, writeCombos, readActiveCombo, writeActiveCombo } from "../combo-storage";
+import { readCombos, writeCombos, readActiveCombo, writeActiveCombo, getCombosSnapshot, subscribeCombos, NO_COMBOS } from "../combo-storage";
 import type { Combo } from "../combos";
 
 const combo: Combo = {
@@ -68,5 +68,36 @@ describe("combo storage", () => {
     expect(readActiveCombo()).toBe("c1");
     writeActiveCombo(null);
     expect(readActiveCombo()).toBeNull();
+  });
+});
+
+describe("shared combo store", () => {
+  it("gives the same snapshot object until the stored text changes", () => {
+    expect(getCombosSnapshot()).toBe(NO_COMBOS);
+    writeCombos([combo]);
+    writeActiveCombo("c1");
+    const a = getCombosSnapshot();
+    expect(a).toEqual({ combos: [combo], activeId: "c1" });
+    expect(getCombosSnapshot()).toBe(a);
+    writeActiveCombo(null);
+    expect(getCombosSnapshot()).not.toBe(a);
+    expect(getCombosSnapshot().activeId).toBeNull();
+  });
+
+  it("tells every subscriber, so the two AI tabs stay in step, and stops after unsubscribe", () => {
+    const chat = vi.fn();
+    const agent = vi.fn();
+    const offChat = subscribeCombos(chat);
+    const offAgent = subscribeCombos(agent);
+    writeCombos([combo]);
+    expect(chat).toHaveBeenCalledTimes(1);
+    expect(agent).toHaveBeenCalledTimes(1);
+    writeActiveCombo("c1");
+    expect(chat).toHaveBeenCalledTimes(2);
+    offChat();
+    writeActiveCombo(null);
+    expect(chat).toHaveBeenCalledTimes(2);
+    expect(agent).toHaveBeenCalledTimes(3);
+    offAgent();
   });
 });

@@ -2,7 +2,7 @@ import { signAgentToken } from "@/lib/agent/token";
 import { createAdminClient, loadProviderKey } from "@/lib/agent/admin";
 import { AGENT_PROVIDERS, buildRunnerEnv, isAgentProvider } from "@/lib/agent/env";
 import { agentLimitsFromEnv, checkAgentLimits } from "@/lib/agent/limits";
-import { finishRunRow, loadUsage, startRunRow } from "@/lib/agent/runs";
+import { finishRunRow, loadUsage, reconcileRuns, startRunRow } from "@/lib/agent/runs";
 import { currentUserId, json, ownedHandle, sseResponse } from "@/lib/agent/route-auth";
 import { newRunId, projectSlug, type SandboxHandle } from "@/lib/agent/sandbox";
 import { getSandboxProvider } from "@/lib/agent/provider";
@@ -127,7 +127,12 @@ export async function POST(request: Request): Promise<Response> {
   const limits = agentLimitsFromEnv();
 
   try {
-    const verdict = checkAgentLimits(await loadUsage(admin, userId, limits), limits);
+    let usage = await loadUsage(admin, userId, limits);
+    // A run whose tab was closed is still "running" in the database. Close finished ones before saying "busy".
+    if (usage.activeRuns > 0 && (await reconcileRuns(admin, sandboxes, userId)) > 0) {
+      usage = await loadUsage(admin, userId, limits);
+    }
+    const verdict = checkAgentLimits(usage, limits);
     if (!verdict.ok) return json({ error: verdict.message, code: verdict.code }, verdict.code === "busy" ? 409 : 429);
   } catch (err) {
     console.error("agent usage lookup failed", err);

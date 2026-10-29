@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   loadUsage: vi.fn(),
   startRunRow: vi.fn(),
   finishRunRow: vi.fn(),
+  reconcileRuns: vi.fn(),
   loadProviderKey: vi.fn(),
 }));
 
@@ -19,6 +20,7 @@ vi.mock("@/lib/agent/runs", () => ({
   loadUsage: mocks.loadUsage,
   startRunRow: mocks.startRunRow,
   finishRunRow: mocks.finishRunRow,
+  reconcileRuns: mocks.reconcileRuns,
 }));
 
 import { POST, GET } from "../run/route";
@@ -77,6 +79,7 @@ beforeEach(() => {
   mocks.loadUsage.mockResolvedValue({ activeRuns: 0, minutesToday: 0 });
   mocks.startRunRow.mockResolvedValue(undefined);
   mocks.finishRunRow.mockResolvedValue(undefined);
+  mocks.reconcileRuns.mockResolvedValue(0);
   mocks.loadProviderKey.mockResolvedValue(REAL_KEY);
   vi.stubEnv("ENCRYPTION_SECRET", SECRET);
   vi.stubEnv("AGENT_PUBLIC_URL", "https://veda.example");
@@ -115,6 +118,24 @@ describe("POST /api/agent/run", () => {
     const res = await POST(post(validBody));
     expect(res.status).toBe(503);
     expect((await res.json()).code).toBe("agent_unavailable");
+  });
+
+  it("closes a finished run whose tab was closed before it answers busy", async () => {
+    mocks.loadUsage
+      .mockResolvedValueOnce({ activeRuns: 1, minutesToday: 0 })
+      .mockResolvedValueOnce({ activeRuns: 0, minutesToday: 0 });
+    mocks.reconcileRuns.mockResolvedValueOnce(1);
+    const res = await POST(post(validBody));
+    expect(res.status).toBe(200);
+    expect(mocks.reconcileRuns).toHaveBeenCalledTimes(1);
+    await stopOrAnswer(res.headers.get("X-Agent-Run")!);
+    await readAll(res);
+  });
+
+  it("still answers 409 when the active run is really running", async () => {
+    mocks.loadUsage.mockResolvedValue({ activeRuns: 1, minutesToday: 0 });
+    mocks.reconcileRuns.mockResolvedValue(0);
+    expect((await POST(post(validBody))).status).toBe(409);
   });
 
   it("answers 409 when a run is already active and 429 over the daily cap", async () => {

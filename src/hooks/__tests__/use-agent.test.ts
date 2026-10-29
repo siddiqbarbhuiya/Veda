@@ -17,7 +17,7 @@ vi.mock("@/hooks/use-file-system", () => ({
   }),
 }));
 
-import { describeAgentError, useAgent } from "../use-agent";
+import { answeredKey, describeAgentError, useAgent } from "../use-agent";
 
 const choice = { provider: "openrouter", model: "a/b:free" };
 
@@ -148,6 +148,38 @@ describe("useAgent", () => {
     expect(result.current.decisions[id]).toEqual({ "a.js": "applied", "new.js": "applied", "b.js": "rejected" });
   });
 
+  it("accepting one file leaves the other files pending", async () => {
+    const changes = [
+      { path: "a.js", op: "update", content: "A2" },
+      { path: "b.js", op: "update", content: "B2" },
+    ];
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(sse([{ seq: 0, type: "changes", changes }, { seq: 1, type: "done" }])));
+    const { result } = renderHook(() => useAgent({ reconnectDelayMs: 0 }));
+    await act(async () => {
+      await result.current.send("go", choice);
+    });
+    const id = result.current.turns[0].id;
+    act(() => result.current.accept(id, ["a.js"]));
+    expect(result.current.decisions[id]).toEqual({ "a.js": "applied" });
+    expect(fs.updateFileContent).toHaveBeenCalledTimes(1);
+  });
+
+  it("marks an accepted file with an unsafe path as rejected, and no other file", async () => {
+    const changes = [
+      { path: "../evil.js", op: "create", content: "x" },
+      { path: "b.js", op: "update", content: "B2" },
+    ];
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(sse([{ seq: 0, type: "changes", changes }, { seq: 1, type: "done" }])));
+    const { result } = renderHook(() => useAgent({ reconnectDelayMs: 0 }));
+    await act(async () => {
+      await result.current.send("go", choice);
+    });
+    const id = result.current.turns[0].id;
+    act(() => result.current.accept(id, ["../evil.js"]));
+    expect(result.current.decisions[id]).toEqual({ "../evil.js": "rejected" });
+    expect(fs.createFile).not.toHaveBeenCalled();
+  });
+
   it("new chat clears the turns and the next run starts a new conversation", async () => {
     const fetchMock = vi.fn().mockImplementation(async () => sse([{ seq: 0, type: "done" }]));
     vi.stubGlobal("fetch", fetchMock);
@@ -165,6 +197,55 @@ describe("useAgent", () => {
       await result.current.send("three", choice);
     });
     expect(JSON.parse(fetchMock.mock.calls[2][1].body).newConversation).toBe(true);
+  });
+});
+
+describe("useAgent stop and permissions", () => {
+  it("sends Stop as soon as the run id arrives when Stop was pressed too early", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const fetchMock = vi.fn().mockImplementation(async (url: string) => {
+      if (url === "/api/agent/stop") return new Response("{}", { status: 200 });
+      await gate;
+      return sse([text(0), { seq: 1, type: "done" }]);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const { result } = renderHook(() => useAgent({ reconnectDelayMs: 0 }));
+    let run!: Promise<void>;
+    act(() => {
+      run = result.current.send("go", choice);
+    });
+    // Stop is pressed while the server has not answered yet: there is no run id.
+    act(() => result.current.stop());
+    expect(fetchMock.mock.calls.some((c) => c[0] === "/api/agent/stop")).toBe(false);
+    release();
+    await act(async () => {
+      await run;
+    });
+    const stopCall = fetchMock.mock.calls.find((c) => c[0] === "/api/agent/stop");
+    expect(stopCall).toBeTruthy();
+    expect(JSON.parse(stopCall![1].body)).toEqual({ run: "s1.r1" });
+  });
+
+  it("keys an answered permission by turn, so the same id in a later run still asks", async () => {
+    const fetchMock = vi.fn().mockImplementation(async (url: string) => {
+      if (url === "/api/agent/permission") return new Response("{}", { status: 200 });
+      return sse([{ seq: 0, type: "permission", id: "p1", tool: "Bash", summary: "ls" }, { seq: 1, type: "done" }]);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const { result } = renderHook(() => useAgent({ reconnectDelayMs: 0 }));
+    await act(async () => {
+      await result.current.send("one", choice);
+    });
+    const first = result.current.turns[0].id;
+    act(() => result.current.answerPermission(first, "p1", true));
+    expect(result.current.answered.has(answeredKey(first, "p1"))).toBe(true);
+    await act(async () => {
+      await result.current.send("two", choice);
+    });
+    const second = result.current.turns[1].id;
+    expect(result.current.answered.has(answeredKey(second, "p1"))).toBe(false);
+    expect(answeredKey(1, "p1")).not.toBe(answeredKey(2, "p1"));
   });
 });
 

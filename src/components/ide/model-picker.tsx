@@ -19,7 +19,9 @@ export function filterItems(items: ModelItem[], query: string, freeOnly: boolean
 }
 
 /**
- * Model selector for the composer row. The list opens upward, above the button.
+ * Model selector for the composer row. The list opens upward and is as wide as the composer: it is placed
+ * against the nearest positioned ancestor (the sticky composer box), not against the button, so it never
+ * runs past the edge of a narrow panel.
  * Search and "Free only" keep the 400+ OpenRouter models usable.
  */
 export function ModelPicker({
@@ -99,7 +101,7 @@ export function ModelPicker({
   const buttonText = selected ? selected.label : loading ? "Loading models…" : "No model";
 
   return (
-    <div ref={rootRef} className="relative min-w-0 flex-1" onKeyDown={open ? onKeyDown : undefined}>
+    <div ref={rootRef} className="min-w-0 flex-1" onKeyDown={open ? onKeyDown : undefined}>
       <button
         ref={buttonRef}
         type="button"
@@ -125,7 +127,7 @@ export function ModelPicker({
       </button>
 
       {open ? (
-        <div className="absolute bottom-full left-0 z-40 mb-1 flex max-h-80 w-[min(22rem,calc(100vw-2rem))] flex-col rounded-lg border border-line-strong bg-overlay shadow-e2 animate-fade-in">
+        <div className="absolute inset-x-3 bottom-full z-40 mb-1 flex max-h-80 flex-col rounded-lg border border-line-strong bg-overlay shadow-e2 animate-fade-in">
           <div className="flex flex-col gap-2 border-b border-line p-2">
             <input
               ref={searchRef}

@@ -226,26 +226,40 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   const admin = createServiceRoleClient();
-  const primaryRate = await loadRate(admin, provider as Provider, model);
-  if (primaryRate.failed) return json({ error: "Failed to load rates", code: "server_error" }, 500);
-  if (!primaryRate.rate) return json({ error: "Model not supported", code: "model_unsupported" }, 400);
-  const rate = primaryRate.rate;
-
-  // 3. API key. Checked BEFORE the hold, so a missing key never touches the balance or the ledger.
-  let apiKey: string;
-  try {
-    const key = await loadKey(admin, userId, provider as Provider);
-    if (key === null) {
-      return json(
-        { error: `No API key saved for ${PROVIDER_LABEL[provider as Provider]}`, code: "no_api_key" },
-        400
-      );
+  // 2 and 3. Rate and API key. Both are checked BEFORE the hold, so a request that cannot run never touches the
+  // balance or the ledger. The first model that can run is used: it has a rate (OpenRouter free models come and go)
+  // and the student has a key for its provider. A single model has no fallbacks, so it gets its own error.
+  const queue: ComboEntry[] = [{ provider, model }, ...(fallbackEntries ?? [])];
+  let target: Target | null = null;
+  let firstFailure: Response | null = null;
+  while (queue.length > 0 && !target) {
+    const e = queue.shift()!;
+    const prov = e.provider as Provider;
+    const found = await loadRate(admin, prov, e.model);
+    if (found.failed) {
+      firstFailure ??= json({ error: "Failed to load rates", code: "server_error" }, 500);
+      continue;
     }
-    apiKey = key;
-  } catch (err) {
-    console.error("key fetch or decrypt failed", err);
-    return json({ error: "Failed to start AI request", code: "server_error" }, 500);
+    if (!found.rate) {
+      firstFailure ??= json({ error: "Model not supported", code: "model_unsupported" }, 400);
+      continue;
+    }
+    let key: string | null;
+    try {
+      key = await loadKey(admin, userId, prov);
+    } catch (err) {
+      console.error("key fetch or decrypt failed", err);
+      firstFailure ??= json({ error: "Failed to start AI request", code: "server_error" }, 500);
+      continue;
+    }
+    if (key === null) {
+      firstFailure ??= json({ error: `No API key saved for ${PROVIDER_LABEL[prov]}`, code: "no_api_key" }, 400);
+      continue;
+    }
+    target = { provider: prov, model: e.model, rate: found.rate, apiKey: key };
   }
+  if (!target) return firstFailure ?? json({ error: "Model not supported", code: "model_unsupported" }, 400);
+  const rate = target.rate;
 
   // 4. Circuit breaker. Fail closed: a DB error blocks the request.
   let breaker;
@@ -291,8 +305,8 @@ export async function POST(request: Request): Promise<Response> {
 
   // The active entry starts as the model the student chose. A combo may move it to a later entry
   // while no text has been produced yet. After the first chunk the entry never changes.
-  let active: Target = { provider: provider as Provider, model, rate, apiKey };
-  const pending: ComboEntry[] = [...(fallbackEntries ?? [])];
+  let active: Target = target;
+  const pending: ComboEntry[] = queue; // the entries after the one that was chosen
 
   let generator: AsyncGenerator<StreamChunk>;
   let first: IteratorResult<StreamChunk>;

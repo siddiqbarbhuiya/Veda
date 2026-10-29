@@ -144,6 +144,28 @@ describe("combo fallback", () => {
     expect(mocks.settleHold).toHaveBeenCalledWith("user-1", 20, 0);
   });
 
+  it("skips a first model that is not in the catalogue and runs the next entry", async () => {
+    const res = await POST(
+      req({ ...base, provider: "openrouter", model: "gone/vanished:free", fallbacks: [{ provider: "openrouter", model: FREE }] })
+    );
+    expect(res.status).toBe(200);
+    await res.text();
+    expect(mocks.streamChat).toHaveBeenCalledTimes(1);
+    expect(mocks.streamChat.mock.calls[0][1]).toBe(FREE);
+    // The hold and the cost use the model that ran: FREE costs 0.
+    expect(mocks.settleHold).toHaveBeenCalledWith("user-1", 20, 0);
+  });
+
+  it("answers with the first entry's error when no entry can run", async () => {
+    const res = await POST(
+      req({ ...base, provider: "openrouter", model: "gone/one", fallbacks: [{ provider: "openrouter", model: "gone/two" }] })
+    );
+    expect(res.status).toBe(400);
+    expect((await res.json()).code).toBe("model_unsupported");
+    expect(mocks.deductHold).not.toHaveBeenCalled();
+    expect(mocks.streamChat).not.toHaveBeenCalled();
+  });
+
   it("rejects more than 4 fallbacks", async () => {
     const res = await POST(
       req({ ...base, provider: "openrouter", model: FREE, fallbacks: new Array(5).fill({ provider: "openrouter", model: PAID }) })

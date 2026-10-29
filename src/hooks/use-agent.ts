@@ -33,6 +33,14 @@ const MAX_RECONNECTS = 30;
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
+function postStop(runId: string) {
+  void fetch("/api/agent/stop", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ run: runId }),
+  }).catch(() => {});
+}
+
 /** Map an error from the run route to a message and an action. */
 export function describeAgentError(status: number, code: string | undefined, message: string | undefined): ChatError {
   switch (code) {
@@ -47,6 +55,9 @@ export function describeAgentError(status: number, code: string | undefined, mes
       return describeChatError(status, code, message);
   }
 }
+
+/** Key for an answered permission request: the turn and the request id. */
+export const answeredKey = (turnId: number, permissionId: string) => `${turnId}:${permissionId}`;
 
 export function useAgent({ reconnectDelayMs = 1000 }: { reconnectDelayMs?: number } = {}) {
   const { files, projectName, createFile, updateFileContent, deleteFile } = useFileSystem();
@@ -64,6 +75,8 @@ export function useAgent({ reconnectDelayMs = 1000 }: { reconnectDelayMs?: numbe
   const genRef = useRef(0);
   const nextTurn = useRef(1);
   const newConversation = useRef(true);
+  // Stop was pressed before the server had answered with a run id. It is sent as soon as the id is known.
+  const stopWanted = useRef(false);
   const lastSend = useRef<{ prompt: string; choice: AgentChoice } | null>(null);
   const storeRef = useRef({ createFile, updateFileContent, deleteFile });
   useEffect(() => {
@@ -88,6 +101,7 @@ export function useAgent({ reconnectDelayMs = 1000 }: { reconnectDelayMs?: numbe
       setError(null);
       setDraft(null);
       lastSend.current = { prompt, choice };
+      stopWanted.current = false;
 
       const controller = new AbortController();
       abortRef.current = controller;
@@ -171,6 +185,7 @@ export function useAgent({ reconnectDelayMs = 1000 }: { reconnectDelayMs?: numbe
         runId = res.headers.get("X-Agent-Run");
         newConversation.current = false;
         if (!stale()) patchTurn(turnId, (t) => ({ ...t, runId }));
+        if (stopWanted.current && runId) postStop(runId);
         await consume(res);
 
         // The connection ended before "done" (the function limit, or a network drop): ask for the rest.
@@ -223,19 +238,18 @@ export function useAgent({ reconnectDelayMs = 1000 }: { reconnectDelayMs?: numbe
 
   const stop = useCallback(() => {
     const runId = turnsRef.current.at(-1)?.runId;
-    if (!runId) return;
     // Ask the sandbox to stop. The stream stays open and ends when the runner says "done".
-    void fetch("/api/agent/stop", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ run: runId }),
-    }).catch(() => {});
+    // With no run id yet, remember the request: send() posts it when the id arrives.
+    if (runId) postStop(runId);
+    else stopWanted.current = true;
   }, []);
 
   const answerPermission = useCallback((turnId: number, permissionId: string, allow: boolean, always = false) => {
     const runId = turnsRef.current.find((t) => t.id === turnId)?.runId;
     if (!runId) return;
-    setAnswered((s) => new Set(s).add(permissionId));
+    // The key holds the turn too, so the same permission id in another run is not taken as answered.
+    const key = answeredKey(turnId, permissionId);
+    setAnswered((s) => new Set(s).add(key));
     void fetch("/api/agent/permission", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -244,7 +258,7 @@ export function useAgent({ reconnectDelayMs = 1000 }: { reconnectDelayMs?: numbe
       // The answer did not arrive: show the buttons again.
       setAnswered((s) => {
         const next = new Set(s);
-        next.delete(permissionId);
+        next.delete(key);
         return next;
       });
     });
@@ -264,8 +278,9 @@ export function useAgent({ reconnectDelayMs = 1000 }: { reconnectDelayMs?: numbe
     });
     setDecision(turnId, result.applied, "applied");
     setDecision(turnId, result.conflicts, "conflict");
-    // An unsafe or empty change cannot be applied: mark it rejected so it does not wait forever.
-    setDecision(turnId, result.skipped, "rejected");
+    // `skipped` also lists the files that were not asked for (they stay pending). Only an accepted file that
+    // could not be applied (unsafe path or no content) is marked rejected, so it does not wait forever.
+    setDecision(turnId, result.skipped.filter((path) => paths.includes(path)), "rejected");
   }, []);
 
   const reject = useCallback((turnId: number, paths: string[]) => setDecision(turnId, paths, "rejected"), []);
@@ -275,13 +290,8 @@ export function useAgent({ reconnectDelayMs = 1000 }: { reconnectDelayMs?: numbe
     abortRef.current?.abort();
     abortRef.current = null;
     genRef.current++;
-    if (runId) {
-      void fetch("/api/agent/stop", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ run: runId }),
-      }).catch(() => {});
-    }
+    if (runId) postStop(runId);
+    stopWanted.current = false;
     runningRef.current = false;
     newConversation.current = true;
     commitTurns([]);

@@ -6,8 +6,8 @@ import { MAX_FILE_CONTEXT_CHARS, useAiChat, type ModelChoice } from "@/hooks/use
 import { useFileSystem } from "@/hooks/use-file-system";
 import { itemKey, useModelCatalog } from "@/hooks/use-model-catalog";
 import { estimateMessagesTokens, estimateTokens } from "@/lib/billing/tokens";
-import { orderEntries, type Combo } from "@/lib/combos";
-import { readActiveCombo, readCombos } from "@/lib/combo-storage";
+import { orderEntries } from "@/lib/combos";
+import { useCombos } from "@/hooks/use-combos";
 import { Button, buttonStyles } from "@/components/ui/button";
 import { controlClass } from "@/components/ui/field";
 import { cn } from "@/lib/cn";
@@ -45,8 +45,7 @@ export default function ChatTab() {
   const { activeFile } = useFileSystem();
   const { items, state: catalogState } = useModelCatalog();
   const [saved, setSaved] = useState<string | null>(readSavedModel);
-  const [combos, setCombos] = useState<Combo[]>(readCombos);
-  const [activeComboId, setActiveComboId] = useState<string | null>(readActiveCombo);
+  const { active: combo } = useCombos();
   const [comboOpen, setComboOpen] = useState(false);
   const [input, setInput] = useState("");
   const [showJump, setShowJump] = useState(false);
@@ -61,7 +60,6 @@ export default function ChatTab() {
     return (items.find((i) => i.keyed)?.key ?? items[0]?.key) || "";
   }, [saved, items]);
   const item = items.find((i) => i.key === selected);
-  const combo = combos.find((c) => c.id === activeComboId) ?? null;
 
   // Rate-limit countdown from the error time. Send stays disabled until it ends.
   const [now, setNow] = useState(() => Date.now());
@@ -326,18 +324,7 @@ export default function ChatTab() {
           )}
         </div>
       </div>
-      <ComboDialog
-        open={comboOpen}
-        onClose={() => {
-          setCombos(readCombos());
-          setComboOpen(false);
-        }}
-        items={items}
-        onActiveChange={(id) => {
-          setCombos(readCombos());
-          setActiveComboId(id);
-        }}
-      />
+      <ComboDialog open={comboOpen} onClose={() => setComboOpen(false)} items={items} />
     </div>
   );
 }

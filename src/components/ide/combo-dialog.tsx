@@ -27,13 +27,10 @@ export function ComboDialog({
   open,
   onClose,
   items,
-  onActiveChange,
 }: {
   open: boolean;
   onClose: () => void;
   items: ModelItem[];
-  /** Called with the id of the combo now in use, or null for a single model. */
-  onActiveChange: (id: string | null) => void;
 }) {
   const [combos, setCombos] = useState<Combo[]>([]);
   const [active, setActive] = useState<string | null>(null);
@@ -62,7 +59,6 @@ export function ComboDialog({
   const choose = (id: string | null) => {
     setActive(id);
     writeActiveCombo(id);
-    onActiveChange(id);
   };
 
   const remove = (id: string) => {

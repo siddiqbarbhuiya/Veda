@@ -2,12 +2,12 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { AlertCircle, ArrowDown, Info, Layers, RotateCw, Send, ShieldCheck, Square, Terminal } from "lucide-react";
-import { useAgent, type AgentChoice } from "@/hooks/use-agent";
+import { answeredKey, useAgent, type AgentChoice } from "@/hooks/use-agent";
 import { useModelCatalog } from "@/hooks/use-model-catalog";
 import { AGENT_PROVIDERS } from "@/lib/agent/env";
 import { buildTimeline, changesOf, openPermissions } from "@/lib/agent/timeline";
-import { orderEntries, type Combo } from "@/lib/combos";
-import { readActiveCombo, readCombos } from "@/lib/combo-storage";
+import { orderEntries } from "@/lib/combos";
+import { useCombos } from "@/hooks/use-combos";
 import { Button, buttonStyles } from "@/components/ui/button";
 import { controlClass } from "@/components/ui/field";
 import { cn } from "@/lib/cn";
@@ -30,6 +30,15 @@ function readSavedModel(): string | null {
   }
 }
 
+// Permission ids of one turn that the student already answered.
+function answeredIds(turnId: number, events: { type: string; id?: string }[], answered: ReadonlySet<string>): Set<string> {
+  const out = new Set<string>();
+  for (const e of events) {
+    if (e.type === "permission" && e.id !== undefined && answered.has(answeredKey(turnId, e.id))) out.add(e.id);
+  }
+  return out;
+}
+
 /**
  * The Claude Code tab. Claude Code runs in a private cloud sandbox. The student reviews every file change.
  * Models: Anthropic (own key) and OpenRouter (own key), alone or as a combo.
@@ -38,8 +47,7 @@ export default function AgentPanel() {
   const agent = useAgent();
   const { items, state: catalogState } = useModelCatalog(AGENT_PROVIDERS);
   const [saved, setSaved] = useState<string | null>(readSavedModel);
-  const [combos, setCombos] = useState<Combo[]>(readCombos);
-  const [activeComboId, setActiveComboId] = useState<string | null>(readActiveCombo);
+  const { active: activeCombo } = useCombos();
   const [comboOpen, setComboOpen] = useState(false);
   const [input, setInput] = useState("");
   const [showJump, setShowJump] = useState(false);
@@ -56,11 +64,10 @@ export default function AgentPanel() {
 
   // A combo may hold models that Claude Code cannot use (OpenAI, Gemini). Those entries are left out.
   const combo = useMemo(() => {
-    const c = combos.find((x) => x.id === activeComboId);
-    if (!c) return null;
-    const entries = c.entries.filter((e) => (AGENT_PROVIDERS as readonly string[]).includes(e.provider));
-    return entries.length > 0 ? { ...c, entries } : null;
-  }, [combos, activeComboId]);
+    if (!activeCombo) return null;
+    const entries = activeCombo.entries.filter((e) => (AGENT_PROVIDERS as readonly string[]).includes(e.provider));
+    return entries.length > 0 ? { ...activeCombo, entries } : null;
+  }, [activeCombo]);
 
   const anyKey = items.some((i) => i.keyed);
 
@@ -171,7 +178,7 @@ export default function AgentPanel() {
                       items={buildTimeline(turn.events)}
                       running={live}
                       openPermissions={openPermissions(turn.events)}
-                      answered={agent.answered}
+                      answered={answeredIds(turn.id, turn.events, agent.answered)}
                       onAnswer={(id, allow, always) => agent.answerPermission(turn.id, id, allow, always)}
                     />
                     {live && turn.events.length === 0 ? (
@@ -323,18 +330,7 @@ export default function AgentPanel() {
           )}
         </div>
       </div>
-      <ComboDialog
-        open={comboOpen}
-        onClose={() => {
-          setCombos(readCombos());
-          setComboOpen(false);
-        }}
-        items={items}
-        onActiveChange={(id) => {
-          setCombos(readCombos());
-          setActiveComboId(id);
-        }}
-      />
+      <ComboDialog open={comboOpen} onClose={() => setComboOpen(false)} items={items} />
     </div>
   );
 }
