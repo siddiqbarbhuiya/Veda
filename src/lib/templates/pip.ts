@@ -55,3 +55,16 @@ export function addRequirement(text: string | undefined, spec: string): string {
   if (!replaced) next.push(spec);
   return next.join("\n") + "\n";
 }
+
+/** `requirements.txt` text without the package `name`. Other lines, comments and options stay as they are. */
+export function removeRequirement(text: string | undefined, name: string): string {
+  const target = requirementName(name);
+  const lines = (text ?? "").split(/\r?\n/);
+  while (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
+  const kept = lines.filter((line) => {
+    const trimmed = line.replace(/\s+#.*$/, "").trim();
+    if (!trimmed || trimmed.startsWith("#") || trimmed.startsWith("-")) return true;
+    return requirementName(trimmed) !== target;
+  });
+  return kept.length > 0 ? kept.join("\n") + "\n" : "";
+}
