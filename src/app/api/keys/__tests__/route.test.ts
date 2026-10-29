@@ -15,6 +15,8 @@ let store: Row[] = [];
 let currentUser: { id: string } | null = null;
 let upsertArgs: { row: Record<string, unknown>; opts: unknown } | null = null;
 let nextId = 1;
+let orderedBy: string | null = null;
+let encryptThrows = false;
 
 // Anon client: auth + RLS-scoped reads/deletes.
 function anonClient() {
@@ -24,25 +26,33 @@ function anonClient() {
     },
     from: () => ({
       select: (cols: string) => ({
-        eq: async (_c: string, uid: string) => ({
-          data: store
-            .filter((r) => r.user_id === uid)
-            .map((r) => {
-              const out: Record<string, unknown> = {};
-              cols.split(",").map((s) => s.trim()).forEach((k) => {
-                out[k] = (r as Record<string, unknown>)[k];
-              });
-              return out;
-            }),
-          error: null,
+        eq: (_c: string, uid: string) => ({
+          order: async (col: string) => {
+            orderedBy = col;
+            return {
+              data: store
+                .filter((r) => r.user_id === uid)
+                .map((r) => {
+                  const out: Record<string, unknown> = {};
+                  cols.split(",").map((s) => s.trim()).forEach((k) => {
+                    out[k] = (r as Record<string, unknown>)[k];
+                  });
+                  return out;
+                }),
+              error: null,
+            };
+          },
         }),
       }),
       delete: () => ({
         eq: (_c1: string, id: string) => ({
-          eq: async (_c2: string, uid: string) => {
-            store = store.filter((r) => !(r.id === id && r.user_id === uid));
-            return { error: null };
-          },
+          eq: (_c2: string, uid: string) => ({
+            select: async () => {
+              const gone = store.filter((r) => r.id === id && r.user_id === uid);
+              store = store.filter((r) => !(r.id === id && r.user_id === uid));
+              return { data: gone.map((r) => ({ id: r.id })), error: null };
+            },
+          }),
         }),
       }),
     }),
@@ -53,6 +63,16 @@ function anonClient() {
 function serviceClient() {
   return {
     from: () => ({
+      select: () => ({
+        eq: (_c1: string, uid: string) => ({
+          eq: (_c2: string, provider: string) => ({
+            maybeSingle: async () => ({
+              data: store.find((r) => r.user_id === uid && r.provider === provider) ?? null,
+              error: null,
+            }),
+          }),
+        }),
+      }),
       upsert: (row: Record<string, unknown>, opts: unknown) => {
         upsertArgs = { row, opts };
         return {
@@ -84,7 +104,10 @@ vi.mock("@/lib/supabase/server", () => ({
   createServerClient: vi.fn(async () => anonClient()),
 }));
 vi.mock("@/lib/crypto/encryption", () => ({
-  encrypt: vi.fn(() => ({ encrypted: "ENC", iv: "IV", authTag: "TAG" })),
+  encrypt: vi.fn(() => {
+    if (encryptThrows) throw new Error("no secret");
+    return { encrypted: "ENC", iv: "IV", authTag: "TAG" };
+  }),
 }));
 vi.mock("@supabase/ssr", () => ({
   createServerClient: vi.fn(() => serviceClient()),
@@ -95,6 +118,8 @@ vi.mock("next/headers", () => ({
 
 import { POST, GET } from "../route";
 import { DELETE } from "../[id]/route";
+
+const KEY_ID = "123e4567-e89b-42d3-a456-426614174000";
 
 function postReq(body: unknown) {
   return new Request("http://localhost/api/keys", {
@@ -108,6 +133,8 @@ beforeEach(() => {
   store = [];
   nextId = 1;
   upsertArgs = null;
+  orderedBy = null;
+  encryptThrows = false;
   currentUser = { id: "user-1" };
   vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "http://localhost:54321");
   vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "service-key");
@@ -118,7 +145,7 @@ describe("POST /api/keys", () => {
     const res = await POST(postReq({ provider: "openai", key: "sk-secret", label: "mine" }));
     expect(res.status).toBe(201);
     const json = await res.json();
-    expect(json).toEqual({ id: "id-1", provider: "openai", label: "mine" });
+    expect(json).toEqual({ id: "id-1", provider: "openai", label: "mine", replaced: false });
     expect(JSON.stringify(json)).not.toContain("sk-secret");
     expect(upsertArgs?.row).toMatchObject({
       user_id: "user-1",
@@ -129,6 +156,44 @@ describe("POST /api/keys", () => {
     });
     expect(JSON.stringify(upsertArgs)).not.toContain("sk-secret");
     expect(upsertArgs?.opts).toEqual({ onConflict: "user_id,provider" });
+  });
+
+  it("trims the key and the label before they are stored", async () => {
+    const res = await POST(postReq({ provider: "openai", key: "  sk-abc\n", label: "  mine  " }));
+    expect(res.status).toBe(201);
+    expect((await res.json()).label).toBe("mine");
+    expect(upsertArgs?.row.label).toBe("mine");
+  });
+
+  it("returns 400 when the key is longer than 512 characters", async () => {
+    const res = await POST(postReq({ provider: "openai", key: "k".repeat(513) }));
+    expect(res.status).toBe(400);
+    expect(upsertArgs).toBeNull();
+  });
+
+  it("accepts a key of exactly 512 characters", async () => {
+    const res = await POST(postReq({ provider: "openai", key: "k".repeat(512) }));
+    expect(res.status).toBe(201);
+  });
+
+  it("returns 400 when the label is longer than 60 characters", async () => {
+    const res = await POST(postReq({ provider: "openai", key: "sk-x", label: "l".repeat(61) }));
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 200 with replaced: true and sets updated_at when the provider already has a key", async () => {
+    await POST(postReq({ provider: "openai", key: "sk-1" }));
+    const res = await POST(postReq({ provider: "openai", key: "sk-2" }));
+    expect(res.status).toBe(200);
+    expect((await res.json()).replaced).toBe(true);
+    expect(typeof upsertArgs?.row.updated_at).toBe("string");
+  });
+
+  it("returns a JSON 500 when encryption throws", async () => {
+    encryptThrows = true;
+    const res = await POST(postReq({ provider: "openai", key: "sk-x" }));
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ error: "Failed to save key" });
   });
 
   it("returns 400 when provider is missing", async () => {
@@ -163,9 +228,16 @@ describe("GET /api/keys", () => {
     await POST(postReq({ provider: "gemini", key: "g-key", label: "g" }));
     const res = await GET();
     expect(res.status).toBe(200);
+    expect(orderedBy).toBe("provider");
     const json = await res.json();
     expect(json).toEqual([
-      { id: "id-1", provider: "gemini", label: "g", created_at: "2026-01-01T00:00:00Z" },
+      {
+        id: "id-1",
+        provider: "gemini",
+        label: "g",
+        created_at: "2026-01-01T00:00:00Z",
+        updated_at: expect.any(String),
+      },
     ]);
     const text = JSON.stringify(json);
     expect(text).not.toContain("ENC");
@@ -180,13 +252,47 @@ describe("GET /api/keys", () => {
 
 describe("DELETE /api/keys/:id", () => {
   it("returns 204 and the key is gone on subsequent GET", async () => {
-    await POST(postReq({ provider: "anthropic", key: "a-key" }));
-    const del = await DELETE(new Request("http://localhost/api/keys/id-1", { method: "DELETE" }), {
-      params: Promise.resolve({ id: "id-1" }),
+    store.push({
+      id: KEY_ID,
+      user_id: "user-1",
+      provider: "anthropic",
+      label: null,
+      created_at: "2026-01-01T00:00:00Z",
+      encrypted_key: "ENC",
+      iv: "IV",
+      auth_tag: "TAG",
+    });
+    const del = await DELETE(new Request("http://localhost/api/keys/x", { method: "DELETE" }), {
+      params: Promise.resolve({ id: KEY_ID }),
     });
     expect(del.status).toBe(204);
     const list = await (await GET()).json();
     expect(list).toEqual([]);
+  });
+
+  it("returns 404 when the key does not exist or belongs to another user", async () => {
+    store.push({
+      id: KEY_ID,
+      user_id: "user-2",
+      provider: "openai",
+      label: null,
+      created_at: "2026-01-01T00:00:00Z",
+      encrypted_key: "ENC",
+      iv: "IV",
+      auth_tag: "TAG",
+    });
+    const res = await DELETE(new Request("http://localhost/api/keys/x", { method: "DELETE" }), {
+      params: Promise.resolve({ id: KEY_ID }),
+    });
+    expect(res.status).toBe(404);
+    expect(store).toHaveLength(1);
+  });
+
+  it("returns 400 for an id that is not a UUID", async () => {
+    const res = await DELETE(new Request("http://localhost/api/keys/x", { method: "DELETE" }), {
+      params: Promise.resolve({ id: "not-a-uuid" }),
+    });
+    expect(res.status).toBe(400);
   });
 
   it("returns 401 when unauthenticated", async () => {

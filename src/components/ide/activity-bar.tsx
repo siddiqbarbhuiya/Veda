@@ -7,7 +7,7 @@ import { cn } from "@/lib/cn";
 
 const item =
   "group relative flex size-10 items-center justify-center rounded-md text-fg-3 transition-colors duration-150 " +
-  "hover:bg-fg/[0.07] hover:text-fg active:bg-fg/[0.11]";
+  "hover:bg-fg/[0.07] hover:text-fg active:bg-fg/[0.11] focus-visible:outline-2 focus-visible:outline-ring";
 
 function Indicator({ active }: { active: boolean }) {
   return (
@@ -77,7 +77,7 @@ export function ActivityBar({
           <Search size={20} aria-hidden="true" />
         </ToggleButton>
       </div>
-      <Link href="/dashboard" aria-label="Dashboard" title="Dashboard" className={item}>
+      <Link href="/dashboard" aria-label="Settings" title="Settings and dashboard" className={item}>
         <Settings size={20} aria-hidden="true" />
       </Link>
     </nav>

@@ -1,9 +1,7 @@
-"use client";
-
 import Link from "next/link";
 import { Check } from "lucide-react";
 import { buttonStyles } from "@/components/ui/button";
-import { TOPUP_PACKS, formatRupees } from "@/components/payments/topup-packs";
+import { TOPUP_PACKS, formatRupees } from "@/lib/razorpay/packs";
 import { Section, SectionHeading } from "./section";
 
 const blurb: Record<string, string> = {
@@ -19,9 +17,9 @@ export function Pricing() {
         id="pricing-title"
         overline="Pricing"
         title="Small top-ups. No subscription."
-        lead="Credit is for the in-app AI calls. Veda bills only what each call costs. Your AI provider bills your own key under its own terms."
+        lead="Your own key pays the AI provider under its own terms. Veda credit pays Veda for each in-app AI call, at the real cost of that call."
       />
-      <ul className="mt-12 grid items-stretch gap-4 md:grid-cols-3">
+      <ul className="mt-12 grid grid-cols-1 items-stretch gap-4 md:grid-cols-3">
         {TOPUP_PACKS.map((pack) => {
           const featured = pack.name === "Standard";
           return (
@@ -33,7 +31,7 @@ export function Pricing() {
             >
               {featured ? (
                 <span className="absolute -top-3 left-6 rounded-full bg-accent px-3 py-0.5 text-caption font-medium text-accent-fg">
-                  Most students pick this
+                  Popular
                 </span>
               ) : null}
               <h3 className="text-xl font-semibold">{pack.name}</h3>
@@ -49,14 +47,14 @@ export function Pricing() {
               </p>
               <p className="mt-3 text-fg-2">{blurb[pack.name]}</p>
               <Link
-                href="/login"
+                href="/login?next=/dashboard%3Ftopup%3D1"
                 className={buttonStyles({
                   variant: featured ? "primary" : "secondary",
                   size: "lg",
                   className: "mt-8 w-full",
                 })}
               >
-                Get started with {formatRupees(pack.amountPaise)}
+                Sign in to top up {formatRupees(pack.amountPaise)}
               </Link>
             </li>
           );
@@ -64,7 +62,7 @@ export function Pricing() {
       </ul>
       <p className="mx-auto mt-8 max-w-2xl text-center text-ui text-fg-3 md:text-sm">
         How billing works: we hold an estimate before each AI call, settle at the real cost, and return
-        the unused hold. Amounts are exact to the paise.
+        the unused hold. The settled cost never goes above the hold. Amounts are exact to the paise.
       </p>
     </Section>
   );

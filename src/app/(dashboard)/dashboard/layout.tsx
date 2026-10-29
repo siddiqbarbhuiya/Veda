@@ -1,10 +1,21 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
+import { createServerClient } from "@/lib/supabase/server";
 import DashboardNav from "@/components/dashboard/dashboard-nav";
 import UserMenu from "@/components/dashboard/user-menu";
 import { Logo } from "@/components/ui/logo";
 import { ThemeToggle } from "@/components/ui/theme";
 
-export default function DashboardLayout({ children }: { children: React.ReactNode }) {
+export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
+  // Defence in depth: the middleware already guards this route.
+  const supabase = await createServerClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
+  const meta = user.user_metadata as { full_name?: string; name?: string } | undefined;
+  const name = meta?.full_name ?? meta?.name ?? user.email ?? "User";
+
   return (
     <div className="min-h-dvh bg-app text-fg lg:grid lg:grid-cols-[240px_minmax(0,1fr)]">
       <a
@@ -29,13 +40,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <span className="hidden text-sm font-medium text-fg-2 lg:block">Dashboard</span>
           <div className="ml-auto flex items-center gap-1">
             <ThemeToggle />
-            <UserMenu />
+            <UserMenu name={name} />
           </div>
         </header>
         <div className="border-b border-line bg-panel lg:hidden">
           <DashboardNav orientation="horizontal" />
         </div>
-        <main id="main" className="mx-auto w-full max-w-6xl px-4 py-6 md:px-6 md:py-8">
+        <main id="main" tabIndex={-1} className="mx-auto focus:outline-none w-full max-w-6xl px-4 py-6 md:px-6 md:py-8">
           {children}
         </main>
       </div>

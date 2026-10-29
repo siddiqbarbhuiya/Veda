@@ -24,6 +24,20 @@ describe("IndexedDBStore", () => {
     expect(await store.load("u1", "proj")).toEqual(tree);
   });
 
+  it("saves files and meta together and clears both", async () => {
+    const store = new IndexedDBStore();
+    await store.save("u4", "p", tree, 123);
+    expect(await store.loadWithMeta("u4", "p")).toEqual({ files: tree, updatedAt: 123 });
+    await store.clear("u4", "p");
+    expect(await store.loadWithMeta("u4", "p")).toBeNull();
+  });
+
+  it("treats a bad stored shape as nothing saved", async () => {
+    const store = new IndexedDBStore();
+    await store.save("u5", "p", [{ nope: 1 }] as unknown as FileNode[]);
+    expect(await store.load("u5", "p")).toBeNull();
+  });
+
   it("keeps users and projects separate", async () => {
     const store = new IndexedDBStore();
     await store.save("u2", "a", tree);

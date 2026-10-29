@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Group,
@@ -23,13 +23,12 @@ import { ExportDialog } from "./export-dialog";
 import { SmallScreenNotice } from "./small-screen-notice";
 import { ResizeHandle } from "./resize-handle";
 import { RuntimeProvider, useRuntime } from "./runtime-context";
-import { emit } from "./ide-events";
-import { useRuntimeStatus } from "./use-runtime-status";
+import { emit, useRuntimeState } from "./ide-events";
 import { useViewportMode } from "./use-viewport-mode";
 import { useIdeShortcuts } from "./use-ide-shortcuts";
 import { useSignOut } from "./user-menu";
 import { setTheme, useTheme } from "@/components/ui/theme";
-import { DEFAULT_PROJECT_NAME } from "@/hooks/use-file-system";
+import { DEFAULT_PROJECT_NAME, useFileSystem } from "@/hooks/use-file-system";
 
 export default function IdeLayout() {
   return (
@@ -60,22 +59,56 @@ const safeStorage: LayoutStorage = {
 const HIT_AREA = { fine: 8, coarse: 20 };
 const frame = "h-full w-full min-h-0 overflow-hidden";
 
+const NOTICE_KEY = "veda-small-screen-dismissed";
+
+function readDismissed(): boolean {
+  try {
+    return sessionStorage.getItem(NOTICE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+// Run after the panel has been laid out, so listeners find a visible, non-inert panel.
+function afterPaint(fn: () => void) {
+  requestAnimationFrame(() => requestAnimationFrame(fn));
+}
+
 function IdeLayoutInner() {
   const mode = useViewportMode();
-  if (mode === "small") return <SmallScreenNotice />;
-  return <Shell tablet={mode === "medium"} />;
+  const [dismissed, setDismissed] = useState(readDismissed);
+  const showNotice = mode === "small" && !dismissed;
+
+  const dismiss = useCallback(() => {
+    try {
+      sessionStorage.setItem(NOTICE_KEY, "1");
+    } catch {
+      /* ignore */
+    }
+    setDismissed(true);
+  }, []);
+
+  // The shell is never unmounted, so Monaco, xterm, the shell process and the chat keep their state.
+  return (
+    <>
+      <div inert={showNotice} className="h-full w-full">
+        <Shell tablet={mode !== "large"} />
+      </div>
+      {showNotice ? <SmallScreenNotice onContinue={dismiss} /> : null}
+    </>
+  );
 }
 
 function Shell({ tablet }: { tablet: boolean }) {
   const router = useRouter();
   const theme = useTheme();
   const { setRuntime } = useRuntime();
-  const { status } = useRuntimeStatus();
-  const signOut = useSignOut();
+  const { status } = useRuntimeState();
+  const { activeFile, flushNow } = useFileSystem();
+  const { signOut, error: signOutError } = useSignOut();
 
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
-  const [topupOpen, setTopupOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [open, setOpen] = useState({ sidebar: !tablet, chat: !tablet, terminal: true });
 
@@ -102,44 +135,101 @@ function Shell({ tablet }: { tablet: boolean }) {
     setOpen((o) => (o[key] === isOpen ? o : { ...o, [key]: isOpen }));
   };
 
+  // On a narrow window two side panels do not fit. Opening one collapses the other.
+  const expandSide = useCallback(
+    (which: "sidebar" | "chat") => {
+      const own = which === "sidebar" ? sidebarRef.current : chatRef.current;
+      const other = which === "sidebar" ? chatRef.current : sidebarRef.current;
+      if (tablet && other && !other.isCollapsed()) other.collapse();
+      if (own?.isCollapsed()) own.expand();
+    },
+    [tablet, sidebarRef, chatRef],
+  );
+
+  // Move focus out of a panel before it collapses and becomes inert.
+  const leavePanel = useCallback((id: string) => {
+    const el = document.getElementById(id);
+    if (el?.contains(document.activeElement)) {
+      document.querySelector<HTMLElement>("#editor-panel textarea, #editor-panel [tabindex]")?.focus();
+    }
+  }, []);
+
   const toggleSidebar = useCallback(() => {
     const p = sidebarRef.current;
     if (!p) return;
-    if (p.isCollapsed()) p.expand();
-    else p.collapse();
-  }, [sidebarRef]);
+    if (p.isCollapsed()) expandSide("sidebar");
+    else {
+      leavePanel("sidebar");
+      p.collapse();
+    }
+  }, [sidebarRef, expandSide, leavePanel]);
   const toggleTerminal = useCallback(() => {
     const p = terminalRef.current;
     if (!p) return;
     if (p.isCollapsed()) p.expand();
-    else p.collapse();
-  }, [terminalRef]);
+    else {
+      leavePanel("terminal-panel");
+      p.collapse();
+    }
+  }, [terminalRef, leavePanel]);
   const toggleChat = useCallback(() => {
     const p = chatRef.current;
     if (!p) return;
-    if (p.isCollapsed()) p.expand();
-    else p.collapse();
-  }, [chatRef]);
+    if (p.isCollapsed()) expandSide("chat");
+    else {
+      leavePanel("chat-panel");
+      p.collapse();
+    }
+  }, [chatRef, expandSide, leavePanel]);
 
   const focusChat = useCallback(() => {
-    if (chatRef.current?.isCollapsed()) chatRef.current.expand();
-    setTimeout(() => emit("veda:focus-chat"), 60);
-  }, [chatRef]);
+    expandSide("chat");
+    afterPaint(() => emit("veda:focus-chat"));
+  }, [expandSide]);
 
   const chatShortcut = useCallback(() => {
     const inChat = document.getElementById("chat-panel")?.contains(document.activeElement);
     if (chatRef.current?.isCollapsed() || !inChat) focusChat();
-    else chatRef.current?.collapse();
-  }, [chatRef, focusChat]);
+    else toggleChat();
+  }, [chatRef, focusChat, toggleChat]);
+
+  const busy = status === "booting" || status === "running";
 
   const run = useCallback(() => {
-    if (status !== "booting" && status !== "running") emit("veda:run");
-  }, [status]);
+    if (busy || !activeFile) return;
+    const t = terminalRef.current;
+    if (t?.isCollapsed()) {
+      t.expand();
+      afterPaint(() => emit("veda:run"));
+    } else emit("veda:run");
+  }, [busy, activeFile, terminalRef]);
+
+  const stop = useCallback(() => emit("veda:stop"), []);
 
   const newFile = useCallback(() => {
-    if (sidebarRef.current?.isCollapsed()) sidebarRef.current.expand();
-    setTimeout(() => emit("veda:new-file"), 60);
-  }, [sidebarRef]);
+    expandSide("sidebar");
+    afterPaint(() => emit("veda:new-file"));
+  }, [expandSide]);
+
+  const save = useCallback(() => {
+    void flushNow()
+      .then(() => emit("veda:saved"))
+      .catch(() => {});
+  }, [flushNow]);
+
+  // Crossing the 1024 px breakpoint: collapse the side panels on narrow windows, restore on wide ones.
+  const wasTablet = useRef(tablet);
+  useEffect(() => {
+    if (wasTablet.current === tablet) return;
+    wasTablet.current = tablet;
+    if (tablet) {
+      sidebarRef.current?.collapse();
+      chatRef.current?.collapse();
+    } else {
+      if (sidebarRef.current?.isCollapsed()) sidebarRef.current.expand();
+      if (chatRef.current?.isCollapsed()) chatRef.current.expand();
+    }
+  }, [tablet, sidebarRef, chatRef]);
 
   const openPalette = useCallback(() => setPaletteOpen(true), []);
   const openShortcuts = useCallback(() => setShortcutsOpen(true), []);
@@ -147,6 +237,7 @@ function Shell({ tablet }: { tablet: boolean }) {
   useIdeShortcuts({
     palette: openPalette,
     run,
+    save,
     toggleSidebar,
     toggleTerminal,
     chat: chatShortcut,
@@ -156,6 +247,7 @@ function Shell({ tablet }: { tablet: boolean }) {
 
   const actions: PaletteActions = {
     run,
+    stopRun: stop,
     newFile,
     toggleSidebar,
     toggleTerminal,
@@ -164,7 +256,9 @@ function Shell({ tablet }: { tablet: boolean }) {
     setRuntime,
     toggleTheme: () => setTheme(theme === "dark" ? "light" : "dark"),
     goDashboard: () => router.push("/dashboard"),
-    addCredits: () => setTopupOpen(true),
+    // Full navigation: Razorpay checkout cannot load under the IDE COEP header.
+    // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- full navigation is required (COOP/COEP)
+    addCredits: () => window.location.assign("/dashboard?topup=1"),
     exportZip: () => setExportOpen(true),
     showShortcuts: openShortcuts,
     signOut,
@@ -178,8 +272,8 @@ function Shell({ tablet }: { tablet: boolean }) {
         projectName={DEFAULT_PROJECT_NAME}
         onOpenPalette={openPalette}
         onOpenExport={() => setExportOpen(true)}
-        topupOpen={topupOpen}
-        onTopupOpenChange={setTopupOpen}
+        onRun={run}
+        onStop={stop}
       />
       <div className="flex min-h-0 flex-1">
         <ActivityBar
@@ -212,7 +306,7 @@ function Shell({ tablet }: { tablet: boolean }) {
               <FileTree />
             </aside>
           </Panel>
-          <ResizeHandle id="sep-sidebar" direction="vertical" />
+          <ResizeHandle id="sep-sidebar" direction="vertical" label="Resize sidebar" />
           <Panel id="pnl-main" minSize={320}>
             <main className={`${frame} bg-editor`}>
               <Group
@@ -227,7 +321,7 @@ function Shell({ tablet }: { tablet: boolean }) {
                     <EditorPanel />
                   </div>
                 </Panel>
-                <ResizeHandle id="sep-terminal" direction="horizontal" />
+                <ResizeHandle id="sep-terminal" direction="horizontal" label="Resize terminal" />
                 <Panel
                   id="pnl-terminal"
                   collapsible
@@ -245,7 +339,7 @@ function Shell({ tablet }: { tablet: boolean }) {
               </Group>
             </main>
           </Panel>
-          <ResizeHandle id="sep-chat" direction="vertical" />
+          <ResizeHandle id="sep-chat" direction="vertical" label="Resize AI chat" />
           <Panel
             id="pnl-chat"
             collapsible
@@ -273,6 +367,14 @@ function Shell({ tablet }: { tablet: boolean }) {
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} actions={actions} />
       <ShortcutsDialog open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
       <ExportDialog open={exportOpen} onClose={() => setExportOpen(false)} />
+      {signOutError ? (
+        <p
+          role="alert"
+          className="fixed bottom-8 right-4 z-40 max-w-sm rounded-lg border border-line-strong bg-overlay px-3 py-2 text-ui text-danger shadow-e2"
+        >
+          {signOutError}
+        </p>
+      ) : null}
     </div>
   );
 }

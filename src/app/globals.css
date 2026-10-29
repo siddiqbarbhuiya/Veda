@@ -30,7 +30,7 @@
   --accent-hover: #4f52e3;
   --accent-active: #4549ce;
   --accent-fg: #ffffff;
-  --accent-text: #818cf8;
+  --accent-text: #93a0fb;
   --accent-subtle: rgba(129, 140, 248, 0.14);
 
   --success: #4ade80;
@@ -77,12 +77,12 @@
   --accent-text: #4f46e5;
   --accent-subtle: rgba(79, 70, 229, 0.08);
 
-  --success: #15803d;
-  --warning: #b45309;
+  --success: #166534;
+  --warning: #92400e;
   --danger: #b91c1c;
   --info: #1d4ed8;
-  --success-subtle: rgba(21, 128, 61, 0.1);
-  --warning-subtle: rgba(180, 83, 9, 0.1);
+  --success-subtle: rgba(22, 101, 52, 0.1);
+  --warning-subtle: rgba(146, 64, 14, 0.1);
   --danger-subtle: rgba(185, 28, 28, 0.08);
   --info-subtle: rgba(29, 78, 216, 0.08);
 
@@ -158,6 +158,8 @@
   --animate-scale-in: scale-in 200ms var(--ease-out-expo) both;
   --animate-shimmer: shimmer 1.4s linear infinite;
   --animate-dot-pulse: dot-pulse 1.2s var(--ease-in-out-expo) infinite;
+  --animate-blink: blink 1s steps(1) infinite;
+  --animate-sweep: sweep 1.4s linear infinite;
 
   @keyframes fade-in {
     from {
@@ -195,6 +197,24 @@
       background-position: -200% 0;
     }
   }
+  @keyframes sweep {
+    from {
+      transform: translateX(-100%);
+    }
+    to {
+      transform: translateX(100%);
+    }
+  }
+  @keyframes blink {
+    0%,
+    49% {
+      opacity: 1;
+    }
+    50%,
+    100% {
+      opacity: 0;
+    }
+  }
   @keyframes dot-pulse {
     0%,
     80%,
@@ -211,6 +231,7 @@
 
 @layer base {
   html {
+    scrollbar-gutter: stable;
     scroll-padding-top: 5rem;
     text-rendering: optimizeLegibility;
   }
@@ -293,16 +314,22 @@
     overflow-wrap: anywhere;
   }
 
+  /* Sunken base plus a highlight band that moves with transform only (no repaint per frame). */
   .skeleton {
-    background-image: linear-gradient(
-      90deg,
-      var(--bg-elevated) 0%,
-      var(--bg-overlay) 50%,
-      var(--bg-elevated) 100%
-    );
-    background-size: 200% 100%;
-    animation: var(--animate-shimmer);
+    position: relative;
+    overflow: hidden;
+    background-color: var(--bg-sunken);
     border-radius: 6px;
+  }
+
+  .skeleton::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background-image: linear-gradient(90deg, transparent 0%, var(--border-default) 50%, transparent 100%);
+    opacity: 0.7;
+    transform: translateX(-100%);
+    animation: var(--animate-sweep);
   }
 
   dialog.veda-dialog {
@@ -313,7 +340,7 @@
     color: inherit;
     max-width: calc(100vw - 2rem);
     max-height: calc(100dvh - 2rem);
-    overflow: visible;
+    overflow: visible; /* the panel scrolls, so the focus ring is not clipped */
   }
 
   dialog.veda-dialog::backdrop {
@@ -342,7 +369,41 @@ body:has(dialog.veda-dialog[open]) {
     scroll-behavior: auto !important;
   }
 
-  .skeleton {
+  .skeleton::after {
     animation: none;
+    display: none;
+  }
+}
+
+@media print {
+  :root,
+  :root[data-theme="dark"],
+  :root[data-theme="light"] {
+    --bg-app: #ffffff;
+    --bg-panel: #ffffff;
+    --bg-elevated: #ffffff;
+    --bg-overlay: #ffffff;
+    --bg-editor: #ffffff;
+    --bg-sunken: #ffffff;
+    --text-primary: #000000;
+    --text-secondary: #1f2937;
+    --text-muted: #374151;
+    --accent-text: #3730a3;
+    --border-subtle: #d1d5db;
+    --border-default: #9ca3af;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  body {
+    background: #ffffff;
+    color: #000000;
+  }
+
+  a[href^="http"]::after {
+    content: " (" attr(href) ")";
+    font-size: 0.85em;
   }
 }

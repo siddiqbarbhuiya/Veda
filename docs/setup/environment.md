@@ -531,6 +531,20 @@ The GitHub and Google apps need no change. Their callback URL points to Supabase
 2. Open the wallet. Buy the smallest pack with a Razorpay test card or test UPI ID.
 3. Make sure the balance goes up in the app and a row shows in the `transactions` table.
 
+### 17g. Database table `projects` and legal pages
+
+1. The cloud sync needs the table `projects` (migration `00009`). It is applied to the live database on 2026-10-29. Apply it to any new database in step 5.
+2. The pages `/terms`, `/privacy` and `/refund` hold placeholders for the owner name, address, contact email and grievance officer. Fill them in. A lawyer must review the pages before the launch.
+3. `PAYMENT_MODE=simulator` is refused in production. Set `PAYMENT_MODE=live` on Vercel before real payments.
+
+### 17h. Changes from the full UI audit (2026-10-29)
+
+- Billing: a failed AI call settles at 0 paise. The webhook finds the user through the Razorpay order.
+- Files: names are checked, the tree keeps its state, and the project saves to IndexedDB and the cloud (newest edit wins).
+- IDE: the Run button, shortcuts, palette, terminal, chat error messages and the Add Credits link work as one set.
+- Site: new `error`, `not-found`, `robots`, `sitemap`, `manifest` and icon files, and the legal pages.
+- Known gaps: runtime-to-editor file sync, a Python worker, IndexedDB `blocked` handling, the `middleware` to `proxy` rename, and a WebContainer API commercial licence.
+
 ## 18. Key rotation
 
 Do this only when you must change `ENCRYPTION_SECRET` (for example, after a leak).

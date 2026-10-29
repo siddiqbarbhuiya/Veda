@@ -19,7 +19,9 @@ export class CloudStore {
       .maybeSingle();
     if (error) throw new Error(error.message);
     if (!data) return null;
-    return { files: data.files as FileNode[], updatedAt: new Date(data.updated_at as string).getTime() };
+    const files = Array.isArray(data.files) ? (data.files as FileNode[]) : [];
+    const at = new Date(data.updated_at as string).getTime();
+    return { files, updatedAt: Number.isFinite(at) ? at : 0 };
   }
 
   async save(userId: string, projectName: string, files: FileNode[], updatedAt: number): Promise<CloudSaveResult> {

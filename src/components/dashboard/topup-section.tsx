@@ -4,7 +4,8 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, SectionLabel } from "@/components/ui/card";
 import PackRadioGroup from "@/components/payments/pack-radio-group";
-import { TOPUP_PACKS, formatRupees } from "@/components/payments/topup-packs";
+import { TOPUP_PACKS } from "@/lib/razorpay/packs";
+import { formatRupees } from "@/lib/money";
 
 const DEFAULT_AMOUNT = TOPUP_PACKS[1].amountPaise;
 

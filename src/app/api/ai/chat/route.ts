@@ -3,16 +3,29 @@ import { createServerClient } from "@/lib/supabase/server";
 import { checkCircuitBreaker } from "@/lib/circuit-breaker";
 import { estimateHoldPaise, deductHold, settleHold } from "@/lib/billing/hold";
 import { calculateCostPaise } from "@/lib/billing/cost";
+import { estimateTokens, estimateMessagesTokens } from "@/lib/billing/tokens";
 import { decrypt } from "@/lib/crypto/encryption";
 import { getProviderAdapter } from "@/lib/ai-providers";
-import type { ChatMessage, TokenUsage } from "@/lib/ai-providers";
+import type { ChatMessage, StreamChunk } from "@/lib/ai-providers";
 import type { Database } from "@/types/database";
 
 // Node.js runtime on purpose: decrypt() uses node:crypto, which the edge runtime lacks.
 export const runtime = "nodejs";
+// A long stream must end before the host kills the function (a killed function cannot settle).
+export const maxDuration = 60;
 
 const PROVIDERS = ["openai", "gemini", "anthropic"] as const;
 type Provider = (typeof PROVIDERS)[number];
+const PROVIDER_LABEL: Record<Provider, string> = {
+  openai: "OpenAI",
+  gemini: "Gemini",
+  anthropic: "Anthropic",
+};
+
+const MAX_MESSAGES = 40;
+const MAX_TOTAL_CHARS = 200_000;
+const MAX_BODY_CHARS = 1_000_000;
+const DEFAULT_RETRY_AFTER_SECONDS = 30;
 
 // Service role client bypasses RLS. Used only after auth succeeds.
 function createServiceRoleClient() {
@@ -48,21 +61,76 @@ async function safeSettle(userId: string, holdPaise: number, costPaise: number) 
   }
 }
 
+type ClassifiedError = {
+  status: number;
+  code: "provider_auth" | "provider_rate_limit" | "provider_error";
+  error: string;
+  retryAfter?: number;
+};
+
+// Remove anything that looks like a key and keep the message short.
+function sanitizeMessage(message: string, apiKey: string): string {
+  let m = message;
+  if (apiKey) m = m.split(apiKey).join("[redacted]");
+  m = m.replace(/\b(?:sk|AIza|key)[-_A-Za-z0-9*.]{6,}/g, "[redacted]").replace(/\s+/g, " ").trim();
+  if (m.length > 200) m = `${m.slice(0, 197)}...`;
+  return m || "The provider returned an error.";
+}
+
+// Map a provider failure to an HTTP status, a stable code and a safe message.
+function classifyProviderError(err: unknown, provider: Provider, apiKey: string): ClassifiedError {
+  const label = PROVIDER_LABEL[provider];
+  const e = err as { status?: unknown; retryAfter?: unknown; message?: unknown };
+  const status = typeof e?.status === "number" ? e.status : 0;
+  const message = typeof e?.message === "string" ? e.message : "";
+  const looksLikeBadKey = /api key not valid|invalid api key|incorrect api key|invalid x-api-key/i.test(message);
+  if (status === 401 || status === 403 || (status === 400 && looksLikeBadKey)) {
+    return {
+      status: 502,
+      code: "provider_auth",
+      error: `Your ${label} key was rejected. Check the key in your dashboard.`,
+    };
+  }
+  if (status === 429) {
+    const retryAfter =
+      typeof e.retryAfter === "number" && e.retryAfter > 0 ? Math.ceil(e.retryAfter) : DEFAULT_RETRY_AFTER_SECONDS;
+    return {
+      status: 429,
+      code: "provider_rate_limit",
+      error: `${label} is limiting requests on your key. Wait, then try again. Check your plan and quota if it continues.`,
+      retryAfter,
+    };
+  }
+  return { status: 502, code: "provider_error", error: sanitizeMessage(message, apiKey) };
+}
+
+const isAbort = (err: unknown) =>
+  (err as { name?: string } | null)?.name === "AbortError" || (err as { code?: string } | null)?.code === "ABORT_ERR";
+
 export async function POST(request: Request): Promise<Response> {
   // 1. Auth
   const authClient = await createServerClient();
   const {
     data: { user },
   } = await authClient.auth.getUser();
-  if (!user) return json({ error: "Not authenticated" }, 401);
+  if (!user) return json({ error: "Not authenticated", code: "unauthenticated" }, 401);
   const userId = user.id;
 
-  // 2. Validate body, provider and model
+  // 2. Validate body, provider, model and size
+  let raw: string;
+  try {
+    raw = await request.text();
+  } catch {
+    return json({ error: "Invalid request body", code: "invalid_request" }, 400);
+  }
+  if (raw.length > MAX_BODY_CHARS) {
+    return json({ error: "Message too long", code: "payload_too_large" }, 413);
+  }
   let body: { provider?: unknown; model?: unknown; messages?: unknown };
   try {
-    body = await request.json();
+    body = JSON.parse(raw);
   } catch {
-    return json({ error: "Invalid JSON body" }, 400);
+    return json({ error: "Invalid JSON body", code: "invalid_request" }, 400);
   }
   const { provider, model, messages } = body;
   if (
@@ -73,7 +141,20 @@ export async function POST(request: Request): Promise<Response> {
     messages.length === 0 ||
     !messages.every(isChatMessage)
   ) {
-    return json({ error: "Invalid provider, model or messages" }, 400);
+    return json({ error: "Invalid provider, model or messages", code: "invalid_request" }, 400);
+  }
+  if (messages.length > MAX_MESSAGES) {
+    return json({ error: `Too many messages (maximum ${MAX_MESSAGES})`, code: "too_many_messages" }, 413);
+  }
+  const totalChars = messages.reduce((sum, m) => sum + m.content.length, 0);
+  if (totalChars > MAX_TOTAL_CHARS) {
+    return json({ error: "Message too long", code: "payload_too_large" }, 413);
+  }
+  if (messages.some((m) => m.content.trim() === "")) {
+    return json({ error: "Messages cannot be empty", code: "empty_content" }, 400);
+  }
+  if (messages.find((m) => m.role !== "system")?.role !== "user") {
+    return json({ error: "The conversation must start with a user message", code: "invalid_request" }, 400);
   }
 
   const admin = createServiceRoleClient();
@@ -84,39 +165,11 @@ export async function POST(request: Request): Promise<Response> {
     .eq("model", model)
     .eq("is_active", true)
     .maybeSingle();
-  if (rateError) return json({ error: "Failed to load rates" }, 500);
-  if (!rate) return json({ error: "Model not supported" }, 400);
+  if (rateError) return json({ error: "Failed to load rates", code: "server_error" }, 500);
+  if (!rate) return json({ error: "Model not supported", code: "model_unsupported" }, 400);
 
-  // 3. Circuit breaker. Fail closed: a DB error blocks the request.
-  let breaker;
-  try {
-    breaker = await checkCircuitBreaker(userId);
-  } catch (err) {
-    console.error("circuit breaker failed", err);
-    return json({ error: "Service temporarily unavailable" }, 503);
-  }
-  if (!breaker.allowed) {
-    return json({ error: "Too many requests" }, 429, {
-      "Retry-After": String(breaker.retryAfterSeconds ?? 60),
-    });
-  }
-
-  // 4. Estimate hold (input tokens = characters / 4)
-  const chars = messages.reduce((sum, m) => sum + m.content.length, 0);
-  const holdPaise = estimateHoldPaise(Math.ceil(chars / 4), rate);
-
-  // 5. Deduct hold
-  let deduction;
-  try {
-    deduction = await deductHold(userId, holdPaise);
-  } catch (err) {
-    console.error("deductHold failed", err);
-    return json({ error: "Billing temporarily unavailable" }, 503);
-  }
-  if (!deduction.success) return json({ error: "Insufficient balance" }, 402);
-
-  // 6-7. Fetch key, decrypt, open provider stream. Refund the hold on any failure.
-  let generator: AsyncGenerator<{ chunk: string; done: boolean; usage?: TokenUsage }>;
+  // 3. API key. Checked BEFORE the hold, so a missing key never touches the balance or the ledger.
+  let apiKey: string;
   try {
     const { data: keyRow, error: keyError } = await admin
       .from("api_keys")
@@ -124,63 +177,180 @@ export async function POST(request: Request): Promise<Response> {
       .eq("user_id", userId)
       .eq("provider", provider as Provider)
       .maybeSingle();
-    if (keyError || !keyRow) {
-      await safeSettle(userId, holdPaise, 0);
-      return json({ error: `No API key saved for ${provider}` }, 400);
+    if (keyError) throw keyError;
+    if (!keyRow) {
+      return json(
+        { error: `No API key saved for ${PROVIDER_LABEL[provider as Provider]}`, code: "no_api_key" },
+        400
+      );
     }
-    const apiKey = decrypt(keyRow.encrypted_key, keyRow.iv, keyRow.auth_tag);
-    generator = getProviderAdapter(provider as Provider).streamChat(apiKey, model, messages);
+    apiKey = decrypt(keyRow.encrypted_key, keyRow.iv, keyRow.auth_tag);
   } catch (err) {
-    console.error("key fetch or adapter setup failed", err);
-    await safeSettle(userId, holdPaise, 0);
-    return json({ error: "Failed to start AI request" }, 500);
+    console.error("key fetch or decrypt failed", err);
+    return json({ error: "Failed to start AI request", code: "server_error" }, 500);
   }
 
-  // 8-10. Stream SSE, settle at the end, refund the full hold on stream error
+  // 4. Circuit breaker. Fail closed: a DB error blocks the request.
+  let breaker;
+  try {
+    breaker = await checkCircuitBreaker(userId);
+  } catch (err) {
+    console.error("circuit breaker failed", err);
+    return json({ error: "Service temporarily unavailable", code: "service_unavailable" }, 503);
+  }
+  if (!breaker.allowed) {
+    const retryAfter = breaker.retryAfterSeconds ?? 60;
+    return json({ error: "Too many requests", code: "rate_limited", retry_after: retryAfter }, 429, {
+      "Retry-After": String(retryAfter),
+    });
+  }
+
+  // 5. Estimate and deduct the hold (script-aware token estimate)
+  const inputTokensEstimate = estimateMessagesTokens(messages);
+  const holdPaise = estimateHoldPaise(inputTokensEstimate, rate);
+  let deduction;
+  try {
+    deduction = await deductHold(userId, holdPaise);
+  } catch (err) {
+    console.error("deductHold failed", err);
+    return json({ error: "Billing temporarily unavailable", code: "billing_unavailable" }, 503);
+  }
+  if (!deduction.success) return json({ error: "Insufficient balance", code: "insufficient_balance" }, 402);
+
+  // Settle exactly once. Every exit path below goes through settle().
+  let settled = false;
+  const settle = async (costPaise: number) => {
+    if (settled) return;
+    settled = true;
+    await safeSettle(userId, holdPaise, costPaise);
+  };
+
+  // 6. Open the provider stream. The upstream controller stops the provider call
+  // when the client leaves (request.signal) or the response stream is cancelled.
+  const upstream = new AbortController();
+  const onClientAbort = () => upstream.abort();
+  if (request.signal.aborted) upstream.abort();
+  else request.signal.addEventListener("abort", onClientAbort, { once: true });
+
+  let generator: AsyncGenerator<StreamChunk>;
+  let first: IteratorResult<StreamChunk>;
+  try {
+    generator = getProviderAdapter(provider as Provider).streamChat(
+      apiKey,
+      model,
+      messages,
+      upstream.signal
+    );
+    // Prime the generator: the provider fetch runs on the first next(). A provider
+    // failure (bad key, 429, quota) can still become a proper JSON error here.
+    first = await generator.next();
+  } catch (err) {
+    request.signal.removeEventListener("abort", onClientAbort);
+    await settle(0);
+    if (isAbort(err) || request.signal.aborted) return new Response(null, { status: 499 });
+    console.error("provider request failed", err);
+    const c = classifyProviderError(err, provider as Provider, apiKey);
+    return json(
+      {
+        error: c.error,
+        code: c.code,
+        ...(c.retryAfter !== undefined ? { retry_after: c.retryAfter } : {}),
+      },
+      c.status,
+      c.retryAfter !== undefined ? { "Retry-After": String(c.retryAfter) } : undefined
+    );
+  }
+
+  // 7. Stream SSE. Settle once at the end (finally), also for abort and failure.
   const encoder = new TextEncoder();
+  let output = "";
+  // Cost from estimated tokens: input estimate plus output estimate (at least 1 token), capped at the hold.
+  const estimatedCost = () =>
+    Math.min(
+      holdPaise,
+      calculateCostPaise(inputTokensEstimate, Math.max(1, estimateTokens(output)), rate)
+    );
+  // Charge for text that was produced; refund fully when nothing was produced.
+  const partialCost = () => (output.length > 0 ? estimatedCost() : 0);
+
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
-      const send = (payload: unknown) =>
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
-      let settled = false;
-      try {
-        for await (const part of generator) {
-          if (part.done) {
-            // No usage reported: charge the full hold (no refund) to avoid free usage.
-            const usage = part.usage;
-            const cost = usage
-              ? calculateCostPaise(usage.input_tokens, usage.output_tokens, rate)
-              : holdPaise;
-            settled = true;
-            await safeSettle(userId, holdPaise, cost);
-            send({ chunk: part.chunk, done: true, usage, cost_paise: cost });
-          } else {
-            send({ chunk: part.chunk, done: false });
-          }
+      let clientGone = false;
+      const send = (payload: unknown) => {
+        if (clientGone) return;
+        try {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
+        } catch {
+          // Client closed the stream. Stop the provider call but keep reading until it ends.
+          clientGone = true;
+          upstream.abort();
         }
-        if (!settled) {
-          // Stream ended without a done event: charge the hold.
-          settled = true;
-          await safeSettle(userId, holdPaise, holdPaise);
+      };
+
+      const handle = async (part: StreamChunk) => {
+        if (part.done) {
+          // Missing or 0/0 usage means unknown: charge the estimate, never 0.
+          const u = part.usage;
+          const known = u && (u.input_tokens > 0 || u.output_tokens > 0);
+          const cost = known ? calculateCostPaise(u.input_tokens, u.output_tokens, rate) : estimatedCost();
+          await settle(cost);
+          send({
+            chunk: part.chunk,
+            done: true,
+            ...(known ? { usage: u } : {}),
+            cost_paise: Math.min(cost, holdPaise),
+            ...(part.finish_reason ? { finish_reason: part.finish_reason } : {}),
+          });
+        } else {
+          output += part.chunk;
+          send({ chunk: part.chunk, done: false });
+        }
+      };
+
+      try {
+        if (!first.done) await handle(first.value);
+        while (!first.done) {
+          const next = await generator.next();
+          if (next.done) break;
+          await handle(next.value);
         }
       } catch (err) {
-        console.error("stream failed", err);
-        if (!settled) {
-          settled = true;
-          await safeSettle(userId, holdPaise, 0);
-        }
-        try {
-          send({ chunk: "", done: true, error: "Stream failed" });
-        } catch {
-          // Client already closed the stream.
+        if (isAbort(err) || request.signal.aborted || clientGone) {
+          // Client pressed Stop or left: charge for what was streamed.
+          await settle(partialCost());
+        } else {
+          console.error("stream failed", err);
+          const cost = partialCost();
+          await settle(cost);
+          const c = classifyProviderError(err, provider as Provider, apiKey);
+          send({
+            chunk: "",
+            done: true,
+            error: c.error,
+            code: c.code,
+            ...(c.retryAfter !== undefined ? { retry_after: c.retryAfter } : {}),
+            cost_paise: cost,
+          });
         }
       } finally {
+        request.signal.removeEventListener("abort", onClientAbort);
+        // Stream ended without a done event, or the code above threw: still settle.
+        await settle(partialCost());
+        try {
+          await generator.return(undefined);
+        } catch {
+          // Generator already finished.
+        }
         try {
           controller.close();
         } catch {
           // Already closed.
         }
       }
+    },
+    cancel() {
+      // Client disconnected: stop the provider call. start() settles in its finally.
+      upstream.abort();
     },
   });
 
@@ -190,6 +360,7 @@ export async function POST(request: Request): Promise<Response> {
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache, no-transform",
       Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
     },
   });
 }

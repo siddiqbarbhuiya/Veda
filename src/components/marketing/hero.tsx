@@ -5,7 +5,7 @@ import { IdeMockup } from "./ide-mockup";
 
 const trust = [
   { icon: KeyRound, label: "Bring your own key" },
-  { icon: IndianRupee, label: "Pay only paise per AI call" },
+  { icon: IndianRupee, label: "Pay per AI call, in rupees" },
   { icon: Laptop, label: "Runs in your browser" },
 ];
 
@@ -21,20 +21,20 @@ export function Hero() {
             Code with AI. Pay in rupees.
           </h1>
           <p className="mx-auto mt-6 max-w-xl text-lg text-fg-2">
-            A browser IDE for your assignments, DSA practice and mini-projects. Use your own AI key and top up
-            from ₹29 with UPI.
+            A browser IDE for your assignments, DSA practice and mini-projects. Your own AI key pays the AI
+            provider. Veda credit, from ₹29 with UPI, pays for each in-app AI call.
           </p>
           <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row sm:gap-5">
             <Link href="/login" className={buttonStyles({ variant: "primary", size: "lg" })}>
               Start coding free
               <ArrowRight size={18} aria-hidden="true" />
             </Link>
-            <a
-              href="#how-it-works"
+            <Link
+              href="/#how-it-works"
               className="inline-flex h-11 items-center rounded-md px-2 font-medium text-accent-text hover:underline"
             >
               See how it works
-            </a>
+            </Link>
           </div>
           <ul className="mt-10 flex flex-col items-center justify-center gap-x-8 gap-y-3 text-ui text-fg-2 sm:flex-row sm:flex-wrap">
             {trust.map(({ icon: Icon, label }) => (
@@ -56,12 +56,9 @@ export function Providers() {
     <section aria-label="Supported AI providers" className="border-y border-line bg-panel py-10">
       <div className="mx-auto flex w-full max-w-6xl flex-col items-center gap-5 px-4 md:px-6">
         <p className="text-ui text-fg-3">Works with the AI keys you already have</p>
-        <ul className="flex flex-wrap justify-center gap-3">
+        <ul className="flex flex-wrap justify-center gap-x-10 gap-y-3">
           {["OpenAI", "Anthropic", "Google Gemini"].map((p) => (
-            <li
-              key={p}
-              className="rounded-full border border-line-strong bg-elevated px-5 py-2 font-display font-semibold text-fg"
-            >
+            <li key={p} className="font-display text-lg font-semibold text-fg-2">
               {p}
             </li>
           ))}

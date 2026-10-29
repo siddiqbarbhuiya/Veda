@@ -1,8 +1,9 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 let currentUser: { id: string } | null = null;
 let balance = 0;
 let inserted: Record<string, unknown>[] = [];
+let insertFails = false;
 
 function serviceClient() {
   return {
@@ -28,6 +29,7 @@ function serviceClient() {
       }
       return {
         insert: async (row: Record<string, unknown>) => {
+          if (insertFails) return { error: { message: "insert failed" } };
           inserted.push(row);
           return { error: null };
         },
@@ -48,7 +50,7 @@ vi.mock("next/headers", () => ({
   cookies: vi.fn(async () => ({ getAll: () => [], set: () => {} })),
 }));
 
-import { POST } from "../topup/route";
+import { GET, POST } from "../topup/route";
 
 function req(body: unknown) {
   return new Request("http://localhost/api/wallet/topup", {
@@ -58,10 +60,16 @@ function req(body: unknown) {
   });
 }
 
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
+});
+
 beforeEach(() => {
   currentUser = { id: "user-1" };
   balance = 100;
   inserted = [];
+  insertFails = false;
   vi.stubEnv("PAYMENT_MODE", "simulator");
   vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "http://localhost:54321");
   vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "service-key");
@@ -97,5 +105,65 @@ describe("POST /api/wallet/topup (simulator)", () => {
   it("returns 401 when unauthenticated", async () => {
     currentUser = null;
     expect((await POST(req({ amount_paise: 2900 }))).status).toBe(401);
+  });
+
+  it("rolls the credit back when the ledger insert fails, so a retry cannot double-credit", async () => {
+    insertFails = true;
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const res = await POST(req({ amount_paise: 2900 }));
+    expect(res.status).toBe(500);
+    expect(balance).toBe(100);
+  });
+
+  it("refuses simulator mode in production", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const res = await POST(req({ amount_paise: 2900 }));
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ error: "Simulator mode is disabled in production" });
+    expect(balance).toBe(100);
+  });
+});
+
+describe("GET /api/wallet/topup", () => {
+  it("returns the payment mode", async () => {
+    const res = await GET();
+    expect(await res.json()).toEqual({ mode: "simulator" });
+  });
+
+  it("returns 401 when unauthenticated", async () => {
+    currentUser = null;
+    expect((await GET()).status).toBe(401);
+  });
+});
+
+describe("POST /api/wallet/topup (live)", () => {
+  beforeEach(() => {
+    vi.stubEnv("PAYMENT_MODE", "live");
+    vi.stubEnv("RAZORPAY_KEY_ID", "rzp_test_x");
+    vi.stubEnv("RAZORPAY_KEY_SECRET", "secret");
+  });
+
+  it("creates a Razorpay order with notes and a receipt, and does not credit", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ id: "order_123" }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const res = await POST(req({ amount_paise: 9900 }));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ order_id: "order_123" });
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("https://api.razorpay.com/v1/orders");
+    const sent = JSON.parse(init.body as string);
+    expect(sent).toMatchObject({ amount: 9900, currency: "INR", notes: { user_id: "user-1" } });
+    expect(sent.receipt).toMatch(/^user-1/);
+    expect((init.headers as Record<string, string>).Authorization).toMatch(/^Basic /);
+    expect(balance).toBe(100);
+    expect(inserted).toHaveLength(0);
+  });
+
+  it("returns 500 when Razorpay rejects the order", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 500 })));
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const res = await POST(req({ amount_paise: 2900 }));
+    expect(res.status).toBe(500);
   });
 });

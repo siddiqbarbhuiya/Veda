@@ -3,6 +3,7 @@
 import { useCallback, useMemo, useState } from "react";
 import { ChevronRight, FilePlus, FolderPlus } from "lucide-react";
 import { useFileSystem, findNode, type FileNode } from "@/hooks/use-file-system";
+import { validateName, validateNewPath } from "@/lib/files/validate-name";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { cn } from "@/lib/cn";
@@ -22,10 +23,21 @@ function dirOf(path: string) {
   return path.includes("/") ? path.slice(0, path.lastIndexOf("/") + 1) : "";
 }
 
+function sortNodes(nodes: FileNode[]): FileNode[] {
+  return [...nodes].sort((a, b) => {
+    if (a.type !== b.type) return a.type === "directory" ? -1 : 1;
+    return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" });
+  });
+}
+
+function countFiles(n: FileNode): number {
+  return n.type === "file" ? 1 : (n.children ?? []).reduce((sum, c) => sum + countFiles(c), 0);
+}
+
 const baseDir = (n: FileNode | null) => (!n ? "" : n.type === "directory" ? n.path + "/" : dirOf(n.path));
 
 export default function FileTree() {
-  const { files, activeFile, openFile, createFile, deleteFile } = useFileSystem();
+  const { files, activeFile, openFile, createFile, deleteFile, renameNode, loaded } = useFileSystem();
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
   const [focused, setFocused] = useState<string | null>(null);
@@ -41,7 +53,7 @@ export default function FileTree() {
   const visible = useMemo(() => {
     const out: Row[] = [];
     const walk = (nodes: FileNode[], depth: number, parent: string | null) => {
-      for (const n of nodes) {
+      for (const n of sortNodes(nodes)) {
         out.push({ node: n, depth, parent });
         if (n.type === "directory" && !collapsed.has(n.path)) walk(n.children ?? [], depth + 1, n.path);
       }
@@ -77,28 +89,58 @@ export default function FileTree() {
     setInline({ mode, baseDir: dir });
   };
 
-  const selected = focused ? findNode(files, focused) : activeFile;
+  const selected = (focused ? findNode(files, focused) : null) ?? activeFile;
   useIdeEvent("veda:new-file", () => startNew("new-file", baseDir(selected ?? null)));
 
   const startRename = (node: FileNode) => {
     setMenu(null);
-    if (node.type !== "file") return; // folder rename is not supported in the MVP
     setInline({ mode: "rename", path: node.path });
   };
 
-  const exists = (path: string) => !!findNode(files, path);
+  const siblingNames = (dir: string, except?: string) => {
+    const list = dir ? (findNode(files, dir)?.children ?? []) : files;
+    return list.filter((n) => n.path !== except).map((n) => n.name);
+  };
+
+  /** Returns the full path to create, or the reason the name is not valid. */
+  const checkNew = (mode: "new-file" | "new-folder", dir: string, name: string) =>
+    mode === "new-file"
+      ? validateNewPath(files, dir, name)
+      : (() => {
+          const r = validateName(name, siblingNames(dir.replace(/\/$/, "")));
+          return r.ok ? ({ ok: true, value: dir + r.value } as const) : r;
+        })();
+
+  const checkRename = (node: FileNode, name: string) =>
+    validateName(name, siblingNames(dirOf(node.path).replace(/\/$/, ""), node.path));
 
   const commitNew = (name: string) => {
-    if (inline && inline.mode !== "rename") createFile(inline.baseDir + name, inline.mode === "new-file" ? "file" : "directory");
+    if (inline && inline.mode !== "rename") {
+      const r = checkNew(inline.mode, inline.baseDir, name);
+      if (r.ok) {
+        const isDir = inline.mode === "new-folder";
+        createFile(r.value, isDir ? "directory" : "file");
+        if (isDir) {
+          setOpen(r.value, true);
+          setFocused(r.value);
+        }
+      }
+    }
     setInline(null);
   };
 
   const commitRename = (node: FileNode, name: string) => {
     setInline(null);
-    if (name === node.name) return;
+    if (name === node.name || !checkRename(node, name).ok) return;
     const newPath = dirOf(node.path) + name;
-    createFile(newPath, "file", node.content ?? "");
-    deleteFile(node.path);
+    renameNode(node.path, newPath);
+    setFocused(newPath);
+    // Keep the collapsed state of a renamed folder.
+    setCollapsed((prev) => {
+      const next = new Set<string>();
+      for (const p of prev) next.add(p === node.path ? newPath : p.startsWith(node.path + "/") ? newPath + p.slice(node.path.length) : p);
+      return next;
+    });
   };
 
   const onKeyDown = (e: React.KeyboardEvent) => {
@@ -154,7 +196,10 @@ export default function FileTree() {
       depth={depth}
       label={mode === "new-file" ? "New file name" : "New folder name"}
       icon={<FileIcon name={mode === "new-file" ? "" : "dir"} type={mode === "new-file" ? "file" : "directory"} />}
-      validate={(n) => (exists(inline && inline.mode !== "rename" ? inline.baseDir + n : n) ? `${n} already exists.` : null)}
+      validate={(n) => {
+        const r = inline && inline.mode !== "rename" ? checkNew(inline.mode, inline.baseDir, n) : null;
+        return r && !r.ok ? r.reason : null;
+      }}
       onSubmit={commitNew}
       onCancel={() => setInline(null)}
     />
@@ -171,10 +216,14 @@ export default function FileTree() {
         <InlineNameInput
           key={node.path}
           depth={depth}
-          label="Rename file"
+          label={node.type === "directory" ? "Rename folder" : "Rename file"}
           initial={node.name}
-          icon={<FileIcon name={node.name} />}
-          validate={(n) => (n !== node.name && exists(dirOf(node.path) + n) ? `${dirOf(node.path) + n} already exists.` : null)}
+          icon={<FileIcon name={node.name} type={node.type} />}
+          validate={(n) => {
+            if (n === node.name) return null;
+            const r = checkRename(node, n);
+            return r.ok ? null : r.reason;
+          }}
           onSubmit={(n) => commitRename(node, n)}
           onCancel={() => setInline(null)}
         />,
@@ -231,10 +280,10 @@ export default function FileTree() {
       <div className="sticky top-0 z-10 flex h-9 shrink-0 items-center justify-between border-b border-line bg-panel pl-3 pr-1.5">
         <h2 className="text-overline font-semibold uppercase tracking-[0.08em] text-fg-3">Explorer</h2>
         <div className="flex items-center gap-1">
-          <Button variant="ghost" size="icon-sm" className={iconBtn} aria-label="New file" title="New file" onClick={() => startNew("new-file", baseDir(selected ?? null))}>
+          <Button variant="ghost" size="icon-sm" className={iconBtn} aria-label="New file" title="New file" disabled={!loaded} onClick={() => startNew("new-file", baseDir(selected ?? null))}>
             <FilePlus size={16} aria-hidden="true" />
           </Button>
-          <Button variant="ghost" size="icon-sm" className={iconBtn} aria-label="New folder" title="New folder" onClick={() => startNew("new-folder", baseDir(selected ?? null))}>
+          <Button variant="ghost" size="icon-sm" className={iconBtn} aria-label="New folder" title="New folder" disabled={!loaded} onClick={() => startNew("new-folder", baseDir(selected ?? null))}>
             <FolderPlus size={16} aria-hidden="true" />
           </Button>
         </div>
@@ -251,7 +300,7 @@ export default function FileTree() {
         }}
       >
         {rows}
-        {files.length === 0 && !newAt && <p className="px-3 py-2 text-caption text-fg-3">No files yet. Use New file above.</p>}
+        {loaded && files.length === 0 && !newAt && <p className="px-3 py-2 text-caption text-fg-3">No files yet. Use New file above.</p>}
       </div>
       {menu && (
         <TreeContextMenu
@@ -270,27 +319,25 @@ export default function FileTree() {
         open={toDelete !== null}
         onClose={() => setToDelete(null)}
         title={toDelete ? `Delete ${toDelete.name}?` : "Delete"}
-        description={toDelete?.type === "directory" ? "This folder and everything in it will be deleted." : "This file will be deleted."}
+        description={
+          toDelete?.type === "directory"
+            ? `This folder and the ${countFiles(toDelete)} file${countFiles(toDelete) === 1 ? "" : "s"} in it will be deleted. You cannot undo this.`
+            : "This file will be deleted. You cannot undo this."
+        }
         className="w-[min(26rem,calc(100vw-2rem))]"
       >
-        <div
-          className="flex justify-end gap-2"
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && toDelete && !e.nativeEvent.isComposing && (e.target as HTMLElement).tagName !== "BUTTON") {
-              deleteFile(toDelete.path);
-              setToDelete(null);
-            }
-          }}
-        >
-          <Button variant="secondary" size="sm" onClick={() => setToDelete(null)}>
+        <div className="flex justify-end gap-2">
+          <Button variant="secondary" size="sm" autoFocus onClick={() => setToDelete(null)}>
             Cancel
           </Button>
           <Button
             variant="danger"
             size="sm"
-            autoFocus
             onClick={() => {
-              if (toDelete) deleteFile(toDelete.path);
+              if (toDelete) {
+                deleteFile(toDelete.path);
+                setFocused(null);
+              }
               setToDelete(null);
             }}
           >

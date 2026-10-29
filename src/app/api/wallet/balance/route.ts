@@ -18,5 +18,8 @@ export async function GET() {
   if (error || !data) {
     return NextResponse.json({ error: "Failed to load balance" }, { status: 500 });
   }
-  return NextResponse.json({ balance_paise: data.balance_paise });
+  return NextResponse.json(
+    { balance_paise: data.balance_paise },
+    { headers: { "Cache-Control": "no-store" } }
+  );
 }

@@ -40,10 +40,34 @@ describe('gemini adapter', () => {
       { chunk: '!', done: false },
       { chunk: '', done: true, usage: { input_tokens: 3, output_tokens: 2 } },
     ]);
-    expect(f.mock.calls[0][0]).toContain('gemini-2.0-flash:streamGenerateContent?key=key&alt=sse');
+    expect(f.mock.calls[0][0]).toContain('gemini-2.0-flash:streamGenerateContent?alt=sse');
+    expect(f.mock.calls[0][0]).not.toContain('key');
+    expect(f.mock.calls[0][1].headers['x-goog-api-key']).toBe('key');
     const body = JSON.parse(f.mock.calls[0][1].body);
     expect(body.contents.map((c: { role: string }) => c.role)).toEqual(['user', 'model']);
     expect(body.systemInstruction.parts[0].text).toBe('s');
+  });
+
+  it('counts thinking tokens as output, keeps usage undefined without metadata, reports finishReason', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        sse([
+          'data: {"candidates":[{"content":{"parts":[{"text":"x"}]},"finishReason":"MAX_TOKENS"}],"usageMetadata":{"promptTokenCount":3,"candidatesTokenCount":2,"thoughtsTokenCount":10}}\n\n',
+        ])
+      )
+    );
+    const out = await collect(getProviderAdapter('gemini').streamChat('k', 'm', []));
+    expect(out[out.length - 1]).toEqual({
+      chunk: '',
+      done: true,
+      usage: { input_tokens: 3, output_tokens: 12 },
+      finish_reason: 'MAX_TOKENS',
+    });
+
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(sse(['data: {"candidates":[{"content":{"parts":[{"text":"x"}]}}]}\n\n'])));
+    const out2 = (await collect(getProviderAdapter('gemini').streamChat('k', 'm', []))) as { usage?: unknown }[];
+    expect(out2[out2.length - 1].usage).toBeUndefined();
   });
 
   it('throws provider error', async () => {
@@ -80,6 +104,39 @@ describe('anthropic adapter', () => {
     expect(body.system).toBe('sys');
     expect(body.messages).toEqual([{ role: 'user', content: 'q' }]);
     expect(f.mock.calls[0][1].headers['x-api-key']).toBe('k');
+  });
+
+  it('adds cache tokens to input, reports stop_reason, and leaves usage undefined without message_delta', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        sse([
+          'data: {"type":"message_start","message":{"usage":{"input_tokens":10,"cache_creation_input_tokens":5,"cache_read_input_tokens":20,"output_tokens":1}}}\n\n',
+          'data: {"type":"content_block_delta","delta":{"text":"Yo"}}\n\n',
+          'data: {"type":"message_delta","delta":{"stop_reason":"max_tokens"},"usage":{"output_tokens":7}}\n\n',
+          'data: {"type":"message_stop"}\n\n',
+        ])
+      )
+    );
+    const out = await collect(getProviderAdapter('anthropic').streamChat('k', 'm', []));
+    expect(out[out.length - 1]).toEqual({
+      chunk: '',
+      done: true,
+      usage: { input_tokens: 35, output_tokens: 7 },
+      finish_reason: 'max_tokens',
+    });
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        sse([
+          'data: {"type":"message_start","message":{"usage":{"input_tokens":10,"output_tokens":1}}}\n\n',
+          'data: {"type":"content_block_delta","delta":{"text":"Yo"}}\n\n',
+        ])
+      )
+    );
+    const out2 = (await collect(getProviderAdapter('anthropic').streamChat('k', 'm', []))) as { usage?: unknown }[];
+    expect(out2[out2.length - 1].usage).toBeUndefined();
   });
 
   it('throws provider error', async () => {

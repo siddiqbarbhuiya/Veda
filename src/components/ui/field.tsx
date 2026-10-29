@@ -6,11 +6,11 @@ import { cn } from "@/lib/cn";
 export const controlClass =
   "w-full rounded-md border border-control bg-sunken px-3 text-base text-fg placeholder:text-fg-3 sm:text-sm " +
   "transition-colors duration-150 hover:border-accent-text/70 focus-visible:border-accent " +
-  "focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-ring disabled:opacity-50 " +
+  "focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-ring disabled:cursor-not-allowed disabled:opacity-50 " +
   "aria-[invalid=true]:border-danger";
 
 export function Input({ className, ...rest }: ComponentProps<"input">) {
-  return <input className={cn(controlClass, "h-10 sm:h-9", className)} {...rest} />;
+  return <input className={cn(controlClass, "h-11 sm:h-9", className)} {...rest} />;
 }
 
 export function Textarea({ className, ...rest }: ComponentProps<"textarea">) {
@@ -20,13 +20,13 @@ export function Textarea({ className, ...rest }: ComponentProps<"textarea">) {
 export function Select({ className, children, ...rest }: ComponentProps<"select">) {
   return (
     <span className="relative block">
-      <select className={cn(controlClass, "h-10 appearance-none pr-9 sm:h-9", className)} {...rest}>
+      <select className={cn(controlClass, "peer h-11 appearance-none pr-9 sm:h-9", className)} {...rest}>
         {children}
       </select>
       <ChevronDown
         size={16}
         aria-hidden="true"
-        className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-fg-3"
+        className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-fg-3 peer-disabled:opacity-50"
       />
     </span>
   );
@@ -36,6 +36,8 @@ type FieldControlProps = {
   id: string;
   "aria-describedby"?: string;
   "aria-invalid"?: true;
+  required?: true;
+  "aria-required"?: true;
 };
 
 export function Field({
@@ -67,7 +69,13 @@ export function Field({
           </span>
         ) : null}
       </label>
-      {children({ id, "aria-describedby": describedBy, "aria-invalid": error ? true : undefined })}
+      {children({
+        id,
+        "aria-describedby": describedBy,
+        "aria-invalid": error ? true : undefined,
+        required: required ? true : undefined,
+        "aria-required": required ? true : undefined,
+      })}
       {hint ? (
         <p id={hintId} className="text-caption text-fg-3">
           {hint}

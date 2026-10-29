@@ -58,10 +58,53 @@ describe('openaiAdapter', () => {
     );
     const out = await collect(openaiAdapter.streamChat('k', 'm', []));
     expect(out[0]).toEqual({ chunk: 'A', done: false });
-    expect(out[out.length - 1]).toEqual({
-      chunk: '',
-      done: true,
-      usage: { input_tokens: 0, output_tokens: 0 },
+    // No usage chunk arrived: usage must stay undefined (unknown), not 0/0.
+    const last = out[out.length - 1] as { usage?: unknown };
+    expect(last).toMatchObject({ chunk: '', done: true });
+    expect(last.usage).toBeUndefined();
+  });
+
+  it('passes the abort signal to fetch and reports finish_reason', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      sseResponse([
+        'data: {"choices":[{"delta":{"content":"A"},"finish_reason":null}]}\n\n',
+        'data: {"choices":[{"delta":{},"finish_reason":"length"}]}\n\n',
+        'data: [DONE]\n\n',
+      ])
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const ac = new AbortController();
+    const out = await collect(openaiAdapter.streamChat('k', 'm', [], ac.signal));
+    expect(fetchMock.mock.calls[0][1].signal).toBe(ac.signal);
+    expect(out[out.length - 1]).toMatchObject({ done: true, finish_reason: 'length' });
+  });
+
+  it('cancels the upstream reader on early exit', async () => {
+    const cancel = vi.fn();
+    const enc = new TextEncoder();
+    const body = new ReadableStream({
+      start(c) {
+        c.enqueue(enc.encode('data: {"choices":[{"delta":{"content":"A"}}]}\n\n'));
+      },
+      cancel,
+    });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(body)));
+    const gen = openaiAdapter.streamChat('k', 'm', []);
+    await gen.next();
+    await gen.return(undefined);
+    expect(cancel).toHaveBeenCalled();
+  });
+
+  it('carries status and Retry-After on provider errors', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ error: { message: 'slow' } }), { status: 429, headers: { 'retry-after': '7' } })
+      )
+    );
+    await expect(collect(openaiAdapter.streamChat('k', 'm', []))).rejects.toMatchObject({
+      status: 429,
+      retryAfter: 7,
     });
   });
 

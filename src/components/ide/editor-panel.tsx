@@ -1,27 +1,19 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import Editor, { type Monaco } from "@monaco-editor/react";
+import { useEffect, useMemo, useRef } from "react";
+import Editor, { type Monaco, type OnMount } from "@monaco-editor/react";
 import { ChevronRight } from "lucide-react";
 import { useFileSystem, findNode } from "@/hooks/use-file-system";
+import { languageFor } from "./language";
 import { useTheme } from "@/components/ui/theme";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Kbd } from "@/components/ui/kbd";
 import { LogoMark } from "@/components/ui/logo";
 import { cn } from "@/lib/cn";
-import { EditorTabs, FILE_OPENED_EVENT } from "./editor-tabs";
+import { EditorTabs } from "./editor-tabs";
 import { applyVedaTheme, editorFontFamily } from "./monaco-theme";
 
-const LANGS: Record<string, string> = {
-  js: "javascript", jsx: "javascript", mjs: "javascript", cjs: "javascript",
-  ts: "typescript", tsx: "typescript", json: "json", md: "markdown",
-  py: "python", html: "html", css: "css", sh: "shell", yml: "yaml", yaml: "yaml",
-};
-
-export function languageFor(name: string): string {
-  const ext = name.split(".").pop()?.toLowerCase() ?? "";
-  return LANGS[ext] ?? "plaintext";
-}
+export { languageFor };
 
 const nameOf = (path: string) => path.split("/").pop() ?? path;
 
@@ -81,49 +73,40 @@ function Breadcrumbs({ path }: { path: string }) {
 }
 
 export default function EditorPanel() {
-  const { files, activeFile, openFile, updateFileContent } = useFileSystem();
+  const { files, activeFile, openTabs, openFile, closeTab, updateFileContent, flushNow } = useFileSystem();
   const theme = useTheme();
   const monacoRef = useRef<Monaco | null>(null);
+  const editorRef = useRef<Parameters<OnMount>[0] | null>(null);
+  const flushRef = useRef(flushNow);
   const fontFamily = useMemo(() => (typeof document === "undefined" ? "monospace" : editorFontFamily()), []);
 
-  // Tabs = files opened this session. The hook has no tab list, so it is tracked here.
-  const [tabPaths, setTabPaths] = useState<string[]>([]);
-  const [dismissed, setDismissed] = useState<string | null>(null);
-  const activePath = activeFile && activeFile.type === "file" ? activeFile.path : null;
-
-  // Derived-state updates during render: add the active file, drop files that no longer exist.
-  const nextTabs = tabPaths.filter((p) => findNode(files, p));
-  if (activePath && !nextTabs.includes(activePath) && dismissed !== activePath) nextTabs.push(activePath);
-  if (nextTabs.length !== tabPaths.length || nextTabs.some((p, i) => p !== tabPaths[i])) setTabPaths(nextTabs);
-  if (dismissed && dismissed !== activePath) setDismissed(null);
-
   useEffect(() => {
-    const onOpened = () => setDismissed(null);
-    window.addEventListener(FILE_OPENED_EVENT, onOpened);
-    return () => window.removeEventListener(FILE_OPENED_EVENT, onOpened);
-  }, []);
+    flushRef.current = flushNow;
+  }, [flushNow]);
 
   useEffect(() => {
     if (monacoRef.current) applyVedaTheme(monacoRef.current, theme);
   }, [theme]);
 
-  const closeTab = (path: string) => {
-    const i = tabPaths.indexOf(path);
-    const rest = tabPaths.filter((p) => p !== path);
-    setTabPaths(rest);
-    if (path !== activePath) return;
-    const neighbour = rest[i] ?? rest[i - 1];
-    if (neighbour) openFile(neighbour);
-    else setDismissed(path);
-  };
+  // Dispose the Monaco model of every file that has no tab any more (closed, deleted or renamed).
+  useEffect(() => {
+    const monaco = monacoRef.current;
+    if (!monaco) return;
+    const keep = new Set(openTabs.map((p) => monaco.Uri.parse(p).toString()));
+    const attached = editorRef.current?.getModel();
+    for (const model of monaco.editor.getModels()) {
+      if (model !== attached && !keep.has(model.uri.toString())) model.dispose();
+    }
+  }, [openTabs]);
 
-  const showEmpty = !activeFile || activeFile.type !== "file" || dismissed === activeFile.path;
-  const tabs = tabPaths.map((p) => ({ path: p, name: nameOf(p) }));
+  const showEmpty = !activeFile || activeFile.type !== "file";
+  const tabs = openTabs.filter((p) => findNode(files, p)).map((p) => ({ path: p, name: nameOf(p) }));
+  const activePath = showEmpty ? null : activeFile.path;
 
   return (
     <div id="editor-panel" className="flex h-full min-h-0 w-full flex-col bg-editor">
       {tabs.length > 0 ? (
-        <EditorTabs tabs={tabs} activePath={showEmpty ? null : activePath} onSelect={openFile} onClose={closeTab} />
+        <EditorTabs tabs={tabs} activePath={activePath} onSelect={openFile} onClose={closeTab} />
       ) : (
         <div aria-hidden="true" className="h-9 shrink-0 border-b border-line bg-sunken" />
       )}
@@ -145,8 +128,11 @@ export default function EditorPanel() {
                 monacoRef.current = monaco;
                 applyVedaTheme(monaco, theme);
               }}
-              onMount={(_editor, monaco) => {
+              onMount={(editor, monaco) => {
                 monacoRef.current = monaco;
+                editorRef.current = editor;
+                // Ctrl+S saves the project and stops the browser "save page" dialog.
+                editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => void flushRef.current());
                 document.fonts?.ready.then(() => monaco.editor.remeasureFonts());
               }}
               options={{

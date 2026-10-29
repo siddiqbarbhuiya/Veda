@@ -29,7 +29,7 @@ export default function PackRadioGroup({
               (selected
                 ? "border-accent bg-accent-subtle"
                 : "border-line-strong bg-elevated hover:border-control") +
-              (disabled ? " opacity-50" : "")
+              (disabled ? " cursor-not-allowed opacity-50" : " cursor-pointer")
             }
           >
             <input
@@ -38,6 +38,7 @@ export default function PackRadioGroup({
               value={pack.amountPaise}
               checked={selected}
               disabled={disabled}
+              aria-disabled={disabled || undefined}
               onChange={() => onChange(pack.amountPaise)}
               className="sr-only"
             />

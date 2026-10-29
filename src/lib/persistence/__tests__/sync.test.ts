@@ -87,3 +87,14 @@ describe("CloudStore", () => {
     expect(await new CloudStore(client).save("u1", "default", [file("a.js")], 1)).toEqual({ ok: false, error: "rls denied" });
   });
 });
+
+describe("describeSync", () => {
+  it("maps raw errors to plain words", async () => {
+    const { describeSync } = await import("../sync");
+    expect(describeSync("error", "x", false)).toBe("Offline");
+    expect(describeSync("off", "Failed to fetch")).toBe("Offline");
+    expect(describeSync("off", "Could not find the table 'public.projects' in the schema cache")).toBe("Cloud save is not set up yet");
+    expect(describeSync("error", "boom")).toBe("Cloud save failed. Click to retry.");
+    expect(describeSync("synced", null)).toBe("Saved to the cloud");
+  });
+});

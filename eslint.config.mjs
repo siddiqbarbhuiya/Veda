@@ -12,6 +12,11 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Tool output and agent work copies (they hold their own node_modules).
+    ".claude/**",
+    ".playwright-mcp/**",
+    "graphify-out/**",
+    "public/ide-lab-workers/**",
   ]),
 ]);
 

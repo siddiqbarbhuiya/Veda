@@ -21,7 +21,6 @@ const files = [
 export function IdeMockup() {
   return (
     <figure className="relative mx-auto mt-14 w-full max-w-5xl md:mt-20">
-      <style>{`@keyframes veda-blink{0%,49%{opacity:1}50%,100%{opacity:0}}`}</style>
       <div aria-hidden="true" className="overflow-hidden rounded-2xl border border-line-strong bg-app shadow-glow">
         <div className="flex h-10 items-center gap-2 border-b border-line bg-elevated px-4">
           <span className="size-3 rounded-full bg-danger" />
@@ -84,13 +83,20 @@ export function IdeMockup() {
                 {"    "}
                 <span className={kw}>if</span> (arr[mid] === target) <span className={kw}>return</span> mid;
               </Line>
-              <Line n={7}>{"  }"}</Line>
+              <Line n={7}>
+                {"    "}
+                <span className={kw}>if</span> (arr[mid] {"<"} target) lo = mid + <span className="text-warning">1</span>;
+              </Line>
               <Line n={8}>
+                {"    "}
+                <span className={kw}>else</span> hi = mid - <span className="text-warning">1</span>;
+              </Line>
+              <Line n={9}>{"  }"}</Line>
+              <Line n={10}>
                 {"  "}
                 <span className={kw}>return</span> <span className="text-warning">-1</span>;
                 <span
-                  className="ml-px inline-block h-4 w-[2px] translate-y-0.5 bg-accent-text"
-                  style={{ animation: "veda-blink 1s steps(1) infinite" }}
+                  className="ml-px inline-block h-4 w-[2px] translate-y-0.5 animate-blink bg-accent-text"
                 />
               </Line>
             </div>
@@ -99,7 +105,7 @@ export function IdeMockup() {
                 <Terminal size={12} /> Terminal
               </p>
               <p className="text-fg-2">
-                <span className="text-success">$</span> node main.js
+                <span className="text-success">$</span> node main.js 21
               </p>
               <p className="text-success">Found at index 3</p>
             </div>
@@ -109,10 +115,10 @@ export function IdeMockup() {
               <Bot size={14} /> AI chat
             </p>
             <p className="self-end rounded-xl rounded-br-sm bg-accent px-3 py-2 text-accent-fg">
-              Why does my loop never end?
+              Why did my loop never end?
             </p>
             <p className="rounded-xl rounded-bl-sm border border-line bg-elevated px-3 py-2 text-fg-2">
-              You never change lo or hi inside the loop. Add lo = mid + 1 or hi = mid - 1.
+              You never changed lo or hi inside the loop. I added lo = mid + 1 and hi = mid - 1 on lines 7 and 8.
             </p>
             <p className="mt-auto text-caption text-fg-3">
               Cost: <span className="tnum text-success">12 paise</span>

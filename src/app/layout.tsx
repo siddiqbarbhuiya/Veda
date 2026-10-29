@@ -7,18 +7,19 @@ import {
   Noto_Sans_Tamil,
   Space_Grotesk,
 } from "next/font/google";
+import { SITE_DESCRIPTION, SITE_URL } from "@/lib/site";
 import { ThemeScript } from "@/components/ui/theme-script";
 import "./globals.css";
 
 const inter = Inter({
   variable: "--font-inter",
-  subsets: ["latin"],
+  subsets: ["latin", "latin-ext"],
   display: "swap",
 });
 
 const spaceGrotesk = Space_Grotesk({
   variable: "--font-space-grotesk",
-  subsets: ["latin"],
+  subsets: ["latin", "latin-ext"],
   display: "swap",
 });
 
@@ -49,17 +50,36 @@ const notoTamil = Noto_Sans_Tamil({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL(SITE_URL),
   title: {
     default: "Veda: the AI coding playground for Indian students",
     template: "%s · Veda",
   },
-  description:
-    "A browser-based AI coding workspace for Indian students. Bring your own AI keys, pay with UPI from ₹29, and stay safe from runaway token costs.",
+  description: SITE_DESCRIPTION,
+  applicationName: "Veda",
+  openGraph: {
+    type: "website",
+    locale: "en_IN",
+    siteName: "Veda",
+    title: "Veda: the AI coding playground for Indian students",
+    description: SITE_DESCRIPTION,
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Veda: the AI coding playground for Indian students",
+    description: SITE_DESCRIPTION,
+  },
+  robots: { index: true, follow: true },
 };
 
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
+  colorScheme: "dark light",
+  themeColor: [
+    { media: "(prefers-color-scheme: dark)", color: "#0b0d12" },
+    { media: "(prefers-color-scheme: light)", color: "#f6f7f9" },
+  ],
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

@@ -1,10 +1,27 @@
-import type { ChatMessage, ProviderAdapter, StreamChunk } from './types';
+import type { ChatMessage, ProviderAdapter, StreamChunk, TokenUsage } from './types';
 import { readSSEData, throwProviderError } from './sse';
 
 const MAX_TOKENS = 4096;
 
+type AnthropicUsage = {
+  input_tokens?: number;
+  cache_creation_input_tokens?: number;
+  cache_read_input_tokens?: number;
+};
+
+// Cache tokens are billed as input.
+function inputOf(u: AnthropicUsage | undefined, fallback: number): number {
+  if (u?.input_tokens == null) return fallback;
+  return u.input_tokens + (u.cache_creation_input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0);
+}
+
 export const anthropicAdapter: ProviderAdapter = {
-  async *streamChat(apiKey: string, model: string, messages: ChatMessage[]): AsyncGenerator<StreamChunk> {
+  async *streamChat(
+    apiKey: string,
+    model: string,
+    messages: ChatMessage[],
+    signal?: AbortSignal
+  ): AsyncGenerator<StreamChunk> {
     const system = messages.filter((m) => m.role === 'system').map((m) => m.content).join('\n\n');
     const body: Record<string, unknown> = {
       model,
@@ -24,11 +41,14 @@ export const anthropicAdapter: ProviderAdapter = {
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify(body),
+      signal,
     });
     if (!res.ok) await throwProviderError(res, 'Anthropic');
 
     let inputTokens = 0;
     let outputTokens = 0;
+    let gotFinalUsage = false;
+    let finishReason: string | undefined;
     for await (const data of readSSEData(res)) {
       let json;
       try {
@@ -39,7 +59,7 @@ export const anthropicAdapter: ProviderAdapter = {
       if (json?.type === 'message_stop') break;
       switch (json?.type) {
         case 'message_start':
-          inputTokens = json.message?.usage?.input_tokens ?? inputTokens;
+          inputTokens = inputOf(json.message?.usage, inputTokens);
           outputTokens = json.message?.usage?.output_tokens ?? outputTokens;
           break;
         case 'content_block_delta':
@@ -49,16 +69,18 @@ export const anthropicAdapter: ProviderAdapter = {
           break;
         case 'message_delta':
           outputTokens = json.usage?.output_tokens ?? outputTokens;
-          if (json.usage?.input_tokens != null) inputTokens = json.usage.input_tokens;
+          inputTokens = inputOf(json.usage, inputTokens);
+          if (typeof json.delta?.stop_reason === 'string') finishReason = json.delta.stop_reason;
+          gotFinalUsage = true;
           break;
         case 'error':
           throw new Error(json.error?.message ?? 'Anthropic stream error');
       }
     }
-    yield {
-      chunk: '',
-      done: true,
-      usage: { input_tokens: inputTokens, output_tokens: outputTokens },
-    };
+    // usage stays undefined unless the closing message_delta arrived with real counts.
+    const usage: TokenUsage | undefined = gotFinalUsage
+      ? { input_tokens: inputTokens, output_tokens: outputTokens }
+      : undefined;
+    yield { chunk: '', done: true, usage, finish_reason: finishReason };
   },
 };

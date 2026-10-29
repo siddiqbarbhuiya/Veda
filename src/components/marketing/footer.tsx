@@ -3,6 +3,7 @@ import { ArrowRight } from "lucide-react";
 import { Logo } from "@/components/ui/logo";
 import { ThemeToggle } from "@/components/ui/theme";
 import { buttonStyles } from "@/components/ui/button";
+import { LEGAL_LINKS, NAV_LINKS } from "./nav-links";
 
 export function FinalCta() {
   return (
@@ -26,16 +27,9 @@ export function FinalCta() {
   );
 }
 
-const links = [
-  { href: "#features", label: "Features" },
-  { href: "#how-it-works", label: "How it works" },
-  { href: "#pricing", label: "Pricing" },
-  { href: "#faq", label: "FAQ" },
-];
-
 export function Footer() {
   return (
-    <footer className="border-t border-line bg-panel">
+    <footer className="no-print border-t border-line bg-panel">
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-8 px-4 py-10 md:flex-row md:items-start md:justify-between md:px-6">
         <div>
           <Logo />
@@ -43,11 +37,11 @@ export function Footer() {
         </div>
         <nav aria-label="Footer">
           <ul className="flex flex-wrap gap-x-6 gap-y-2">
-            {links.map((l) => (
+            {[...NAV_LINKS, ...LEGAL_LINKS].map((l) => (
               <li key={l.href}>
-                <a href={l.href} className="inline-flex min-h-11 items-center text-ui text-fg-2 hover:text-fg">
+                <Link href={l.href} className="inline-flex min-h-11 items-center text-ui text-fg-2 hover:text-fg">
                   {l.label}
-                </a>
+                </Link>
               </li>
             ))}
           </ul>
@@ -55,7 +49,7 @@ export function Footer() {
         <ThemeToggle />
       </div>
       <div className="border-t border-line py-5 text-center text-caption text-fg-3">
-        &copy; {new Date().getFullYear()} Veda
+        &copy; 2026 Veda
       </div>
     </footer>
   );

@@ -1,37 +1,21 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
-import { LogOut } from "lucide-react";
+import { AlertCircle, LogOut } from "lucide-react";
 import { createBrowserClient } from "@/lib/supabase/client";
 
-export default function UserMenu() {
-  const [name, setName] = useState("");
+// Disclosure pattern: a button that shows a panel. No role="menu", so no arrow-key promises.
+export default function UserMenu({ name = "User" }: { name?: string }) {
   const [open, setOpen] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
-  const router = useRouter();
-
-  useEffect(() => {
-    let cancelled = false;
-    createBrowserClient()
-      .auth.getUser()
-      .then(({ data }) => {
-        const user = data.user;
-        if (!user || cancelled) return;
-        const meta = user.user_metadata as { full_name?: string; name?: string } | undefined;
-        setName(meta?.full_name ?? meta?.name ?? user.email ?? "User");
-      })
-      .catch(() => {
-        // The avatar falls back to a placeholder.
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  const signOutRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (!open) return;
+    signOutRef.current?.focus();
     const onPointerDown = (event: PointerEvent) => {
       if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
     };
@@ -50,18 +34,38 @@ export default function UserMenu() {
   }, [open]);
 
   const signOut = async () => {
-    await createBrowserClient().auth.signOut();
-    router.push("/login");
+    if (signingOut) return;
+    setSigningOut(true);
+    setError(null);
+    try {
+      const { error: signOutError } = await createBrowserClient().auth.signOut();
+      if (signOutError) throw signOutError;
+      // Hard navigation drops the client router cache, so no protected data stays in memory.
+      // eslint-disable-next-line @next/next/no-location-assign-relative-destination
+      window.location.assign("/login");
+    } catch {
+      setError("Could not sign out. Try again.");
+      setSigningOut(false);
+    }
   };
 
   return (
-    <div ref={rootRef} className="relative">
+    <div
+      ref={rootRef}
+      className="relative"
+      onBlur={(event) => {
+        // Tab moves focus out of the widget: close the panel.
+        if (open && !rootRef.current?.contains(event.relatedTarget as Node | null) && event.relatedTarget) {
+          setOpen(false);
+        }
+      }}
+    >
       <button
         ref={triggerRef}
         type="button"
-        aria-label="User menu"
-        aria-haspopup="menu"
+        aria-label="Account"
         aria-expanded={open}
+        aria-controls="user-menu-panel"
         onClick={() => setOpen((v) => !v)}
         className="flex size-10 items-center justify-center rounded-full bg-accent-subtle text-sm font-semibold text-accent-text transition-colors duration-150 hover:bg-accent hover:text-accent-fg active:scale-[0.98] lg:size-9"
       >
@@ -69,20 +73,28 @@ export default function UserMenu() {
       </button>
       {open ? (
         <div
-          role="menu"
-          aria-label="User menu"
+          id="user-menu-panel"
           className="absolute right-0 top-full z-40 mt-2 w-56 animate-scale-in rounded-lg bg-overlay p-1 shadow-e2"
         >
           <p className="truncate px-3 py-2 text-caption text-fg-3">{name}</p>
           <button
+            ref={signOutRef}
             type="button"
-            role="menuitem"
-            onClick={signOut}
-            className="flex min-h-11 w-full items-center gap-2 rounded-md px-3 text-left text-sm text-fg-2 transition-colors duration-150 hover:bg-fg/[0.07] hover:text-fg lg:min-h-9"
+            disabled={signingOut}
+            onClick={() => void signOut()}
+            className="flex min-h-11 w-full items-center gap-2 rounded-md px-3 text-left text-sm text-fg-2 transition-colors duration-150 hover:bg-fg/[0.07] hover:text-fg disabled:opacity-50 lg:min-h-9"
           >
             <LogOut size={16} aria-hidden="true" />
-            Sign out
+            {signingOut ? "Signing out..." : "Sign out"}
           </button>
+          <div aria-live="polite">
+            {error ? (
+              <p className="flex items-start gap-2 px-3 py-2 text-caption text-danger">
+                <AlertCircle size={14} aria-hidden="true" className="mt-0.5 shrink-0" />
+                {error}
+              </p>
+            ) : null}
+          </div>
         </div>
       ) : null}
     </div>

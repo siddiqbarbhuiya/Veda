@@ -13,7 +13,7 @@ export function SectionHeading({
 }) {
   return (
     <div className="mx-auto max-w-2xl text-center">
-      <p className="text-overline font-semibold uppercase tracking-[0.08em] text-accent-text">{overline}</p>
+      <p className="text-caption font-semibold uppercase tracking-[0.08em] text-accent-text">{overline}</p>
       <h2 id={id} className="mt-3 font-display text-[28px] font-semibold leading-tight tracking-[-0.02em] md:text-4xl">
         {title}
       </h2>

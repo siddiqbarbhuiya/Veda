@@ -23,20 +23,24 @@ export function IdeSkeleton() {
           <Skeleton className="size-6" />
           <Skeleton className="size-6" />
           <Skeleton className="size-6" />
+          <Skeleton className="mt-auto size-6" />
         </div>
-        <div className="hidden w-60 shrink-0 flex-col gap-3 border-r border-line bg-panel p-3 md:flex">
+        <div className="hidden w-60 shrink-0 flex-col gap-3 border-r border-line bg-panel p-3 lg:flex">
           {treeRows.map((w, i) => (
             <Skeleton key={i} className={`h-4 ${w}`} />
           ))}
         </div>
         <div className="flex min-w-0 flex-1 flex-col">
+          <div className="h-9 shrink-0 border-b border-line bg-panel" />
           <div className="flex min-h-0 flex-1 flex-col gap-3 bg-editor p-4">
             {codeLines.map((w, i) => (
               <Skeleton key={i} className={`h-3.5 ${w}`} />
             ))}
           </div>
-          <div className="h-60 shrink-0 border-t border-line bg-panel p-3">
-            <Skeleton className="h-4 w-40" />
+          <div className="h-60 shrink-0 border-t border-line bg-panel">
+            <div className="flex h-9 items-center border-b border-line px-3">
+              <Skeleton className="h-4 w-40" />
+            </div>
           </div>
         </div>
         <div className="hidden w-[360px] shrink-0 border-l border-line bg-panel p-3 lg:block">

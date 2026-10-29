@@ -2,14 +2,8 @@ import { NextResponse } from "next/server";
 import { createServerClient as createSupabaseServerClient } from "@supabase/ssr";
 import { createServerClient } from "@/lib/supabase/server";
 import { encrypt } from "@/lib/crypto/encryption";
+import { KEY_PROVIDER_VALUES, MAX_KEY_LENGTH, MAX_LABEL_LENGTH, isKeyProvider } from "@/lib/key-providers";
 import type { Database } from "@/types/database";
-
-const VALID_PROVIDERS = ["openai", "gemini", "anthropic"] as const;
-type Provider = (typeof VALID_PROVIDERS)[number];
-
-function isProvider(value: unknown): value is Provider {
-  return typeof value === "string" && (VALID_PROVIDERS as readonly string[]).includes(value);
-}
 
 // Service role client bypasses RLS. Use only for writes after auth is checked.
 function createServiceRoleClient() {
@@ -40,20 +34,49 @@ export async function POST(request: Request) {
   }
 
   const { provider, key, label } = body;
-  if (!isProvider(provider)) {
+  if (!isKeyProvider(provider)) {
     return NextResponse.json(
-      { error: "provider must be one of: openai, gemini, anthropic" },
+      { error: `provider must be one of: ${KEY_PROVIDER_VALUES.join(", ")}` },
       { status: 400 }
     );
   }
-  if (typeof key !== "string" || key.trim() === "") {
+  const keyValue = typeof key === "string" ? key.trim() : "";
+  if (keyValue === "") {
     return NextResponse.json({ error: "key must be a non-empty string" }, { status: 400 });
   }
-  const labelValue = typeof label === "string" && label.trim() !== "" ? label : null;
+  if (keyValue.length > MAX_KEY_LENGTH) {
+    return NextResponse.json(
+      { error: `key must be at most ${MAX_KEY_LENGTH} characters` },
+      { status: 400 }
+    );
+  }
+  const labelValue = typeof label === "string" && label.trim() !== "" ? label.trim() : null;
+  if (labelValue !== null && labelValue.length > MAX_LABEL_LENGTH) {
+    return NextResponse.json(
+      { error: `label must be at most ${MAX_LABEL_LENGTH} characters` },
+      { status: 400 }
+    );
+  }
 
-  const { encrypted, iv, authTag } = encrypt(key);
+  let encryptedParts: { encrypted: string; iv: string; authTag: string };
+  try {
+    encryptedParts = encrypt(keyValue);
+  } catch (err) {
+    console.error("keys: encryption failed:", err instanceof Error ? err.message : err);
+    return NextResponse.json({ error: "Failed to save key" }, { status: 500 });
+  }
+  const { encrypted, iv, authTag } = encryptedParts;
 
   const admin = createServiceRoleClient();
+
+  const { data: existing } = await admin
+    .from("api_keys")
+    .select("id")
+    .eq("user_id", user.id)
+    .eq("provider", provider)
+    .maybeSingle();
+  const replaced = Boolean(existing);
+
   const { data, error } = await admin
     .from("api_keys")
     .upsert(
@@ -64,6 +87,7 @@ export async function POST(request: Request) {
         iv,
         auth_tag: authTag,
         label: labelValue,
+        updated_at: new Date().toISOString(),
       },
       { onConflict: "user_id,provider" }
     )
@@ -75,8 +99,8 @@ export async function POST(request: Request) {
   }
 
   return NextResponse.json(
-    { id: data.id, provider: data.provider, label: data.label },
-    { status: 201 }
+    { id: data.id, provider: data.provider, label: data.label, replaced },
+    { status: replaced ? 200 : 201 }
   );
 }
 
@@ -91,11 +115,12 @@ export async function GET() {
 
   const { data, error } = await supabase
     .from("api_keys")
-    .select("id, provider, label, created_at")
-    .eq("user_id", user.id);
+    .select("id, provider, label, created_at, updated_at")
+    .eq("user_id", user.id)
+    .order("provider", { ascending: true });
 
   if (error) {
     return NextResponse.json({ error: "Failed to load keys" }, { status: 500 });
   }
-  return NextResponse.json(data ?? [], { status: 200 });
+  return NextResponse.json(data ?? [], { status: 200, headers: { "Cache-Control": "no-store" } });
 }

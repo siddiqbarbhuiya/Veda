@@ -1,4 +1,17 @@
-/** Throw an Error carrying the provider's error message for a non-OK response. */
+/** Error from a provider HTTP response. Carries the status and the Retry-After value. */
+export class ProviderError extends Error {
+  status: number;
+  /** Seconds from the Retry-After header, when present. */
+  retryAfter?: number;
+  constructor(message: string, status: number, retryAfter?: number) {
+    super(message);
+    this.name = 'ProviderError';
+    this.status = status;
+    this.retryAfter = retryAfter;
+  }
+}
+
+/** Throw a ProviderError carrying the provider's error message for a non-OK response. */
 export async function throwProviderError(res: Response, provider: string): Promise<never> {
   let message = `${provider} request failed with status ${res.status}`;
   try {
@@ -14,7 +27,8 @@ export async function throwProviderError(res: Response, provider: string): Promi
   } catch {
     // keep default message
   }
-  throw new Error(message);
+  const header = Number(res.headers?.get?.('retry-after'));
+  throw new ProviderError(message, res.status, Number.isFinite(header) && header > 0 ? header : undefined);
 }
 
 /** Parse an SSE response body into the `data:` payload strings of each event. */
@@ -39,6 +53,12 @@ export async function* readSSEData(res: Response): AsyncGenerator<string> {
     const last = buffer.replace(/\r$/, '');
     if (last.startsWith('data:')) yield last.slice(5).trim();
   } finally {
+    // Stop the upstream connection on early exit (break, abort, consumer error).
+    try {
+      await reader.cancel();
+    } catch {
+      // Already closed or errored.
+    }
     reader.releaseLock();
   }
 }

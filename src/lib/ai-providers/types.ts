@@ -8,9 +8,9 @@ export interface ChatMessage {
 
 /** Token counts returned by the provider after a completion. */
 export interface TokenUsage {
-  /** Number of tokens in the prompt. */
+  /** Number of tokens in the prompt (includes cache tokens for Anthropic). */
   input_tokens: number;
-  /** Number of tokens in the generated reply. */
+  /** Number of tokens in the generated reply (includes thinking tokens for Gemini). */
   output_tokens: number;
 }
 
@@ -20,8 +20,10 @@ export interface StreamChunk {
   chunk: string;
   /** True on the final chunk. */
   done: boolean;
-  /** Token counts. Present only on the final chunk. */
+  /** Real token counts. Present only on the final chunk, and only when the provider sent them. */
   usage?: TokenUsage;
+  /** Why the reply ended (for example "stop", "length", "max_tokens"). Final chunk only. */
+  finish_reason?: string;
 }
 
 /** Interface that each AI provider (OpenAI, Gemini, Anthropic) implements. */
@@ -31,11 +33,14 @@ export interface ProviderAdapter {
    * @param apiKey - API key for the provider.
    * @param model - Provider model identifier.
    * @param messages - Conversation history to send.
-   * @returns An async generator of stream chunks. The final chunk has `done` true and `usage`.
+   * @param signal - Aborts the provider request and the stream when it fires.
+   * @returns An async generator of stream chunks. The final chunk has `done` true.
+   * `usage` stays undefined until the provider sends real counts.
    */
   streamChat(
     apiKey: string,
     model: string,
-    messages: ChatMessage[]
+    messages: ChatMessage[],
+    signal?: AbortSignal
   ): AsyncGenerator<StreamChunk>;
 }

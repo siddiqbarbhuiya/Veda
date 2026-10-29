@@ -4,7 +4,14 @@ import type { RateConfig } from "./cost";
 
 const MIN_HOLD_PAISE = 10;
 const MAX_HOLD_PAISE = 500;
-const MAX_ATTEMPTS = 5;
+const MAX_ATTEMPTS = 15;
+const BACKOFF_MIN_MS = 20;
+const BACKOFF_MAX_MS = 80;
+// Output tokens the hold must cover at the output rate.
+const ASSUMED_MAX_OUTPUT_TOKENS = 1024;
+
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+const jitterMs = () => BACKOFF_MIN_MS + Math.random() * (BACKOFF_MAX_MS - BACKOFF_MIN_MS);
 
 // Service role client bypasses RLS. Use only after the caller checks auth.
 function createServiceRoleClient() {
@@ -24,12 +31,18 @@ export type BalanceChange = { success: boolean; newBalance: number };
 
 /**
  * Estimates the pre-auth hold, clamped to [10, 500] paise.
+ * The hold covers the input at the input rate plus an assumed maximum output at the output rate.
+ * It is never lower than the older formula (3x input tokens at the output rate).
  * @param inputTokens - Number of input tokens in the request.
  * @param rate - Per-1k-token rates in paise.
  * @returns Hold amount in paise.
  */
 export function estimateHoldPaise(inputTokens: number, rate: RateConfig): number {
-  const raw = Math.ceil((inputTokens * rate.output_paise_per_1k_tokens * 3) / 1000);
+  const legacy = Math.ceil((inputTokens * rate.output_paise_per_1k_tokens * 3) / 1000);
+  const full =
+    Math.ceil((inputTokens * rate.input_paise_per_1k_tokens) / 1000) +
+    Math.ceil((ASSUMED_MAX_OUTPUT_TOKENS * rate.output_paise_per_1k_tokens) / 1000);
+  const raw = Math.max(legacy, full);
   return Math.min(MAX_HOLD_PAISE, Math.max(MIN_HOLD_PAISE, raw));
 }
 
@@ -75,8 +88,11 @@ async function changeBalance(
     if (rows && rows.length > 0) {
       return { success: true, newBalance: rows[0].balance_paise };
     }
+    // Conflict: another request changed the balance. Wait a short random time, then retry.
+    if (attempt < MAX_ATTEMPTS - 1) await sleep(jitterMs());
   }
 
+  console.error("RECONCILE: balance update conflicted too many times", { userId, delta });
   throw new Error("Balance update conflicted too many times");
 }
 
@@ -122,6 +138,9 @@ export async function settleHold(
   const cappedCost = Math.min(actualCostPaise, holdPaise);
   const refund = holdPaise - cappedCost;
   const { newBalance } = await changeBalance(userId, refund, false);
+
+  // A zero-cost settlement (full refund) leaves no ledger row.
+  if (cappedCost <= 0) return;
 
   const supabase = createServiceRoleClient();
   const { error } = await supabase.from("transactions").insert({

@@ -15,8 +15,18 @@ function readTheme(): Theme {
 
 function subscribe(callback: () => void) {
   listeners.add(callback);
+  // Another tab changed the saved theme: apply it here and notify subscribers.
+  const onStorage = (event: StorageEvent) => {
+    if (event.key !== STORAGE_KEY) return;
+    if (event.newValue === "light" || event.newValue === "dark") {
+      document.documentElement.dataset.theme = event.newValue;
+    }
+    callback();
+  };
+  window.addEventListener("storage", onStorage);
   return () => {
     listeners.delete(callback);
+    window.removeEventListener("storage", onStorage);
   };
 }
 
@@ -34,19 +44,22 @@ export function useTheme(): Theme {
   return useSyncExternalStore(subscribe, readTheme, () => "dark");
 }
 
+// Both icons are rendered and CSS shows one (by data-theme), so the server HTML is right for every saved theme.
+// The label does not change with the theme; aria-pressed tells the state (pressed = light theme).
 export function ThemeToggle({ className }: { className?: string }) {
   const theme = useTheme();
-  const next: Theme = theme === "dark" ? "light" : "dark";
   return (
     <Button
       variant="ghost"
-      size="icon"
+      size="icon-touch"
       className={className}
-      aria-label={`Switch to ${next} theme`}
-      title={`Switch to ${next} theme`}
-      onClick={() => setTheme(next)}
+      aria-label="Toggle theme"
+      title="Toggle theme"
+      aria-pressed={theme === "light"}
+      onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
     >
-      {theme === "dark" ? <Sun size={18} aria-hidden="true" /> : <Moon size={18} aria-hidden="true" />}
+      <Sun size={18} aria-hidden="true" className="hidden [:root[data-theme=dark]_&]:block" />
+      <Moon size={18} aria-hidden="true" className="hidden [:root[data-theme=light]_&]:block" />
     </Button>
   );
 }

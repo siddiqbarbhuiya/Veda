@@ -9,7 +9,11 @@ export default function KeysSection() {
   const [refresh, setRefresh] = useState(0);
   return (
     <section aria-labelledby="keys-heading" className="space-y-3">
-      <h2 id="keys-heading" className="font-display text-xl font-semibold tracking-[-0.01em]">
+      <h2
+        id="keys-heading"
+        tabIndex={-1}
+        className="font-display text-xl font-semibold tracking-[-0.01em] focus:outline-none"
+      >
         API keys
       </h2>
       <div className="grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">

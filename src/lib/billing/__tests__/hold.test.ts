@@ -84,17 +84,29 @@ beforeEach(() => {
 
 describe('estimateHoldPaise', () => {
   test('hold is clamped to minimum 10', () => {
-    expect(estimateHoldPaise(0, RATE)).toBe(10);
-    expect(estimateHoldPaise(1, RATE)).toBe(10);
+    const tiny = { input_paise_per_1k_tokens: 1, output_paise_per_1k_tokens: 1 };
+    expect(estimateHoldPaise(0, tiny)).toBe(10);
+    expect(estimateHoldPaise(1, tiny)).toBe(10);
   });
 
   test('hold is clamped to maximum 500', () => {
     expect(estimateHoldPaise(10000, RATE)).toBe(500);
   });
 
-  test('normal hold is 3x the estimated input cost using the output rate', () => {
-    // 200 * 72 * 3 / 1000 = 43.2, rounded up to 44
-    expect(estimateHoldPaise(200, RATE)).toBe(44);
+  test('hold covers input at the input rate plus the assumed output at the output rate', () => {
+    // input: ceil(200 * 18 / 1000) = 4; output: ceil(1024 * 72 / 1000) = 74; total 78
+    expect(estimateHoldPaise(200, RATE)).toBe(78);
+  });
+
+  test('hold is never below the older 3x formula', () => {
+    const cheapOutput = { input_paise_per_1k_tokens: 1, output_paise_per_1k_tokens: 10 };
+    // legacy: ceil(5000 * 10 * 3 / 1000) = 150; full: 5 + 11 = 16
+    expect(estimateHoldPaise(5000, cheapOutput)).toBe(150);
+  });
+
+  test('hold covers an input rate above the output rate', () => {
+    const pricyInput = { input_paise_per_1k_tokens: 100, output_paise_per_1k_tokens: 10 };
+    expect(estimateHoldPaise(2000, pricyInput)).toBeGreaterThanOrEqual(200);
   });
 });
 
@@ -131,7 +143,45 @@ describe('deductHold', () => {
   });
 });
 
+describe('changeBalance retries', () => {
+  test('survives more than 5 conflicting writers', async () => {
+    let conflicts = 0;
+    const bump = () => {
+      if (conflicts++ < 8) {
+        db.profiles[0].balance_paise += 1;
+        db.beforeUpdate = bump;
+      }
+    };
+    db.beforeUpdate = bump;
+    const result = await deductHold('user-1', 100);
+    expect(result.success).toBe(true);
+    expect(db.profiles[0].balance_paise).toBe(1000 + 8 - 100);
+  });
+
+  test('logs RECONCILE and throws after the final failed attempt', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const bump = () => {
+      db.profiles[0].balance_paise += 1;
+      db.beforeUpdate = bump;
+    };
+    db.beforeUpdate = bump;
+    await expect(deductHold('user-1', 100)).rejects.toThrow('conflicted too many times');
+    expect(spy).toHaveBeenCalledWith(
+      expect.stringContaining('RECONCILE'),
+      expect.objectContaining({ userId: 'user-1' })
+    );
+    spy.mockRestore();
+  });
+});
+
 describe('settleHold', () => {
+  test('records no transaction and refunds the whole hold for a zero cost', async () => {
+    db.profiles[0].balance_paise = 900;
+    await settleHold('user-1', 100, 0);
+    expect(db.profiles[0].balance_paise).toBe(1000);
+    expect(db.transactions).toHaveLength(0);
+  });
+
   test('refunds the difference when actual cost is below the hold', async () => {
     db.profiles[0].balance_paise = 900; // after a 100 paise hold
     await settleHold('user-1', 100, 30);

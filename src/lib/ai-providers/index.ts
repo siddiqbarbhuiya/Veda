@@ -4,6 +4,7 @@ import { geminiAdapter } from './gemini';
 import { anthropicAdapter } from './anthropic';
 
 export type { ChatMessage, TokenUsage, ProviderAdapter, StreamChunk } from './types';
+export { ProviderError } from './sse';
 
 /**
  * Returns the adapter for a given provider name.

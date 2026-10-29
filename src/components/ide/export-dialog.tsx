@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AlertTriangle, CheckCircle2, Download, HardDrive, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
@@ -42,11 +42,28 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<{ files: number; bytes: number; zipBytes: number; runtime: boolean } | null>(null);
   const abort = useRef<AbortController | null>(null);
+  const primaryRef = useRef<HTMLButtonElement>(null);
+  const empty = flattenFileNodes(files).length === 0;
 
   const busy = phase === "reading" || phase === "zipping";
 
+  // Focus the primary action (not the Close button) when the dialog opens.
+  useEffect(() => {
+    if (!open) return;
+    const id = requestAnimationFrame(() => primaryRef.current?.focus());
+    return () => cancelAnimationFrame(id);
+  }, [open]);
+
+  function cancel() {
+    abort.current?.abort();
+    abort.current = null;
+    setPhase("idle");
+    setFilesRead(0);
+  }
+
   function close() {
     abort.current?.abort();
+    abort.current = null;
     setPhase("idle");
     setError(null);
     setResult(null);
@@ -55,6 +72,8 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
   }
 
   async function start() {
+    if (empty) return;
+    abort.current?.abort();
     const controller = new AbortController();
     abort.current = controller;
     setPhase("reading");
@@ -76,15 +95,13 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
       const entries = mergeEntries(runtimeEntries, editorEntries);
       setPhase("zipping");
       const zipped = await createZip(entries, DEFAULT_PROJECT_NAME);
-      controller.signal.throwIfAborted();
+      if (abort.current !== controller) return;
       download(zipped, exportFileName(DEFAULT_PROJECT_NAME));
       setResult({ files: countFiles(entries), bytes: totalBytes(entries), zipBytes: zipped.byteLength, runtime: wc !== null });
       setPhase("done");
     } catch (err) {
-      if (controller.signal.aborted) {
-        setPhase("idle");
-        return;
-      }
+      // A newer run or a cancel owns the state now. Do not touch it.
+      if (abort.current !== controller) return;
       setError(err instanceof Error ? err.message : "The export failed.");
       setPhase("error");
     }
@@ -127,15 +144,23 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
         <div className="flex items-start gap-3 rounded-lg bg-warning-subtle p-3 text-sm text-fg">
           <HardDrive size={18} className="mt-0.5 shrink-0 text-warning" aria-hidden="true" />
           <p>
-            Your project is saved <strong>only in this browser</strong>. If you clear site data or use another device,
-            the files are gone. Export a ZIP often to keep a backup.
+            Your files are saved in this browser, and also to the cloud when cloud sync is on (see the status bar).
+            A ZIP is a manual backup that you keep yourself.
           </p>
         </div>
+
+        {empty ? <p className="text-sm text-fg-2">The project has no files to export.</p> : null}
 
         {busy ? (
           <p role="status" className="flex items-center gap-2 text-sm text-fg-2">
             <Loader2 size={16} className="animate-spin" aria-hidden="true" />
-            {phase === "reading" ? `Reading files... ${filesRead.toLocaleString("en-IN")}` : "Creating the ZIP file..."}
+            {phase === "reading" ? (
+              <>
+                Reading files... <span aria-hidden="true">{filesRead.toLocaleString("en-IN")}</span>
+              </>
+            ) : (
+              "Creating the ZIP file..."
+            )}
           </p>
         ) : null}
 
@@ -159,7 +184,7 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
 
         <div className="flex justify-end gap-2 pt-1">
           {busy ? (
-            <Button variant="secondary" onClick={() => abort.current?.abort()}>
+            <Button variant="secondary" onClick={cancel}>
               Cancel
             </Button>
           ) : (
@@ -168,11 +193,12 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
             </Button>
           )}
           <Button
+            ref={primaryRef}
             variant="primary"
             loading={busy}
             leadingIcon={<Download size={16} aria-hidden="true" />}
             onClick={start}
-            disabled={busy}
+            disabled={busy || empty}
           >
             {phase === "done" ? "Download again" : "Download ZIP"}
           </Button>

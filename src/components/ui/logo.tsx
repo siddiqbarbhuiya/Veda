@@ -13,12 +13,12 @@ export function LogoMark({ size = 28, className }: { size?: number; className?: 
       <rect width="32" height="32" rx="8" fill="var(--accent)" />
       <path
         d="M8.5 9.5 16 22.5l7.5-13"
-        stroke="#fff"
+        stroke="var(--accent-fg)"
         strokeWidth="2.8"
         strokeLinecap="round"
         strokeLinejoin="round"
       />
-      <rect x="20" y="23" width="6" height="2.4" rx="1.2" fill="#fff" fillOpacity="0.75" />
+      <rect x="20" y="23" width="6" height="2.4" rx="1.2" fill="var(--accent-fg)" fillOpacity="0.75" />
     </svg>
   );
 }

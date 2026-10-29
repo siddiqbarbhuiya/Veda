@@ -13,6 +13,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { extOf } from "@/lib/files/ext";
 
 type Kind = { icon: LucideIcon; tint: string };
 
@@ -56,7 +57,7 @@ export function FileIcon({
     const Icon = open ? FolderOpen : Folder;
     return <Icon size={size} strokeWidth={1.75} aria-hidden="true" className={cn("shrink-0 text-accent-text", className)} />;
   }
-  const ext = name.includes(".") ? (name.split(".").pop()?.toLowerCase() ?? "") : "";
+  const ext = extOf(name);
   const kind = BY_EXT[ext] ?? { icon: File, tint: "text-fg-3" };
   const Icon = kind.icon;
   return <Icon size={size} strokeWidth={1.75} aria-hidden="true" className={cn("shrink-0", kind.tint, className)} />;
