@@ -1,18 +1,20 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { AlertCircle, ArrowDown, Info, Layers, RotateCw, Send, Sparkles, Square } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AlertCircle, ArrowDown, Info, Layers, Minimize2, RotateCw, Sparkles, SquarePen } from "lucide-react";
 import { MAX_FILE_CONTEXT_CHARS, useAiChat, type ModelChoice } from "@/hooks/use-ai-chat";
+import { useAttachments } from "@/hooks/use-attachments";
+import { useCombos } from "@/hooks/use-combos";
 import { useFileSystem } from "@/hooks/use-file-system";
 import { itemKey, useModelCatalog } from "@/hooks/use-model-catalog";
+import { useStopwatch } from "@/hooks/use-stopwatch";
+import { withAttachments } from "@/lib/attachments";
 import { estimateMessagesTokens, estimateTokens } from "@/lib/billing/tokens";
 import { orderEntries } from "@/lib/combos";
-import { useCombos } from "@/hooks/use-combos";
 import { Button, buttonStyles } from "@/components/ui/button";
-import { controlClass } from "@/components/ui/field";
-import { cn } from "@/lib/cn";
 import { ChatMessageView } from "./chat-message";
 import { ComboDialog } from "./combo-dialog";
+import { Composer, type SlashCommand } from "./composer";
 import { ModelPicker } from "./model-picker";
 import { emit, useIdeEvent } from "./ide-events";
 
@@ -22,6 +24,8 @@ const fmt = (paise: number) => `₹${money.format(paise / 100)}`;
 const SUGGESTIONS = ["Explain this file", "Find bugs in this file", "Write tests for this file"];
 const MODEL_STORAGE_KEY = "veda:chat-model";
 const NEAR_BOTTOM_PX = 80;
+/** Used for the context ring when the provider does not tell the context size. */
+const DEFAULT_CONTEXT_TOKENS = 128_000;
 
 function readSavedModel(): string | null {
   try {
@@ -40,7 +44,7 @@ function saveModel(value: string) {
 }
 
 export default function ChatTab() {
-  const { messages, sendMessage, isStreaming, estimatedCostPaise, error, stop, retry, continueReply, newChat, truncated, draft, clearDraft } =
+  const { messages, sendMessage, isStreaming, estimatedCostPaise, error, stop, retry, continueReply, compact, newChat, truncated, draft, clearDraft } =
     useAiChat();
   const { activeFile } = useFileSystem();
   const { items, state: catalogState } = useModelCatalog();
@@ -49,6 +53,8 @@ export default function ChatTab() {
   const [comboOpen, setComboOpen] = useState(false);
   const [input, setInput] = useState("");
   const [showJump, setShowJump] = useState(false);
+  const files = useAttachments();
+  const time = useStopwatch(isStreaming);
   const scrollRef = useRef<HTMLDivElement>(null);
   const atBottomRef = useRef(true);
   const taRef = useRef<HTMLTextAreaElement>(null);
@@ -102,14 +108,6 @@ export default function ChatTab() {
     else setShowJump(true);
   }, [messages, error, truncated, scrollToBottom]);
 
-  // Auto-grow the textarea up to about 8 lines.
-  useLayoutEffect(() => {
-    const el = taRef.current;
-    if (!el) return;
-    el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, 188)}px`;
-  }, [input]);
-
   useIdeEvent("veda:focus-chat", () => taRef.current?.focus());
   useIdeEvent("veda:new-chat", ({ tab }) => {
     if (tab === "chat") newChat();
@@ -121,14 +119,14 @@ export default function ChatTab() {
 
   // The model that runs first: the single choice, or the first entry of the combo.
   const firstItem = combo
-    ? items.find((i) => i.key === itemKey(combo.entries[0].provider, combo.entries[0].model)) ?? item
+    ? (items.find((i) => i.key === itemKey(combo.entries[0].provider, combo.entries[0].model)) ?? item)
     : item;
   const rate = firstItem?.rate ?? null;
 
   // Pre-send estimate with the same token function the server uses. Output is assumed equal to input.
   const fileChars = Math.min(activeFile?.content?.length ?? 0, MAX_FILE_CONTEXT_CHARS);
-  const estTokens =
-    estimateTokens(input) + Math.ceil(fileChars / 4) + estimateMessagesTokens(messages.slice(-20));
+  const historyTokens = estimateMessagesTokens(messages.slice(-20));
+  const estTokens = estimateTokens(input) + Math.ceil(fileChars / 4) + historyTokens;
   const preEstimate = rate
     ? Math.ceil((estTokens * (rate.input_paise_per_1k_tokens + rate.output_paise_per_1k_tokens)) / 1000)
     : 0;
@@ -147,21 +145,40 @@ export default function ChatTab() {
   const submit = () => {
     const pick = choice();
     if (!input.trim() || isStreaming || !pick || blocked) return;
-    const text = input;
+    const text = withAttachments(input, files.attachments);
     setInput("");
+    files.clear();
     atBottomRef.current = true;
     void sendMessage(text, pick);
   };
 
-  const suggest = (text: string) => {
-    setInput(text);
-    taRef.current?.focus();
-  };
-
-  const onSelect = (value: string) => {
-    setSaved(value);
-    saveModel(value);
-  };
+  const commands: SlashCommand[] = [
+    {
+      id: "compact",
+      label: "Compact conversation",
+      description: "Replace the history with a short summary to free context.",
+      icon: <Minimize2 size={14} aria-hidden="true" />,
+      disabled: messages.length < 2 || isStreaming || !canSend,
+      run: () => {
+        const pick = choice();
+        if (pick) void compact(pick);
+      },
+    },
+    {
+      id: "clear",
+      label: "New conversation",
+      description: "Start again with an empty history.",
+      icon: <SquarePen size={14} aria-hidden="true" />,
+      run: newChat,
+    },
+    {
+      id: "combos",
+      label: "Model combos…",
+      description: "Try several models in order when one fails.",
+      icon: <Layers size={14} aria-hidden="true" />,
+      run: () => setComboOpen(true),
+    },
+  ];
 
   const errorText = error
     ? error.retryAfter
@@ -185,7 +202,16 @@ export default function ChatTab() {
               <p className="text-ui text-fg-2">Ask anything about your code.</p>
               <div className="flex w-full max-w-64 flex-col gap-2">
                 {SUGGESTIONS.map((s) => (
-                  <Button key={s} variant="secondary" size="sm" className="justify-start" onClick={() => suggest(s)}>
+                  <Button
+                    key={s}
+                    variant="secondary"
+                    size="sm"
+                    className="justify-start"
+                    onClick={() => {
+                      setInput(s);
+                      taRef.current?.focus();
+                    }}
+                  >
                     {s}
                   </Button>
                 ))}
@@ -250,79 +276,49 @@ export default function ChatTab() {
         )}
       </div>
 
-      <div className="sticky bottom-0 shrink-0 border-t border-line bg-panel p-3">
-        <div className="mb-2 flex items-center justify-between gap-2 text-caption text-fg-3">
-          {rate ? (
-            <span className="tnum">Est. next: ~{fmt(preEstimate)}</span>
-          ) : (
-            <span className="flex items-center gap-1">
-              <Info size={12} aria-hidden="true" />
-              {catalogState === "loading"
-                ? "Loading models…"
-                : catalogState === "error"
-                  ? "Could not load models. Reload the page."
-                  : "No model rate available"}
-            </span>
-          )}
-          {estimatedCostPaise > 0 && <span className="tnum">Last: {fmt(estimatedCostPaise)}</span>}
-        </div>
-        <textarea
-          ref={taRef}
+      <div className="sticky bottom-0 shrink-0 bg-panel p-2">
+        <Composer
           value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              // IME: Enter confirms the composed Indic character, not the message.
-              // This check must run BEFORE preventDefault, or the composition is cancelled.
-              // keyCode 229 covers Safari, which sends Enter after compositionend.
-              if (e.nativeEvent.isComposing || e.keyCode === 229) return;
-              e.preventDefault();
-              submit();
-            }
-          }}
-          rows={2}
+          onChange={setInput}
+          onSubmit={submit}
           placeholder="Ask about your code…"
-          title="Enter to send. Shift+Enter for a new line."
-          aria-label="Message"
-          className={cn(controlClass, "wrap-anywhere resize-none py-2 leading-relaxed")}
+          ariaLabel="Message"
+          textareaRef={taRef}
+          running={isStreaming}
+          onStop={stop}
+          canSend={!!input.trim() && canSend}
+          sendTitle={rate ? `Send (about ${fmt(preEstimate)})` : catalogState === "loading" ? "Loading models…" : "Send"}
+          attachments={files.attachments}
+          onAttach={(f) => void files.add(f)}
+          onRemoveAttachment={files.remove}
+          attachError={files.error}
+          commands={commands}
+          context={{ used: estTokens, limit: firstItem?.contextLength ?? DEFAULT_CONTEXT_TOKENS }}
+          time={time}
+          model={
+            combo ? (
+              <button
+                type="button"
+                onClick={() => setComboOpen(true)}
+                title={combo.entries.map((e) => e.model).join(" → ")}
+                className="flex h-6 max-w-full items-center gap-1 rounded-md bg-accent-subtle px-2 text-caption text-fg focus-visible:outline-2 focus-visible:outline-ring"
+              >
+                <Layers size={12} aria-hidden="true" className="shrink-0 text-accent-text" />
+                <span className="min-w-0 truncate">Combo: {combo.name}</span>
+              </button>
+            ) : (
+              <ModelPicker
+                items={items}
+                value={selected}
+                onChange={(k) => {
+                  setSaved(k);
+                  saveModel(k);
+                }}
+                loading={catalogState === "loading"}
+              />
+            )
+          }
         />
-        <div className="mt-2 flex items-center gap-1.5">
-          {combo ? (
-            <div className="flex h-8 min-w-0 flex-1 items-center gap-1.5 rounded-md border border-accent bg-accent-subtle px-2 text-caption text-fg">
-              <Layers size={14} aria-hidden="true" className="shrink-0 text-accent-text" />
-              <span className="min-w-0 flex-1 truncate" title={combo.entries.map((e) => e.model).join(" → ")}>
-                Combo: {combo.name}
-              </span>
-            </div>
-          ) : (
-            <ModelPicker items={items} value={selected} onChange={onSelect} loading={catalogState === "loading"} />
-          )}
-          <Button
-            variant={combo ? "secondary" : "ghost"}
-            size="icon-sm"
-            aria-label="Model combos"
-            title="Model combos"
-            aria-pressed={!!combo}
-            onClick={() => setComboOpen(true)}
-          >
-            <Layers size={14} aria-hidden="true" />
-          </Button>
-          {isStreaming ? (
-            <Button variant="danger" size="sm" onClick={stop} leadingIcon={<Square size={14} aria-hidden="true" />}>
-              Stop
-            </Button>
-          ) : (
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={submit}
-              disabled={!input.trim() || !canSend}
-              leadingIcon={<Send size={14} aria-hidden="true" />}
-            >
-              Send
-            </Button>
-          )}
-        </div>
       </div>
       <ComboDialog open={comboOpen} onClose={() => setComboOpen(false)} items={items} />
     </div>

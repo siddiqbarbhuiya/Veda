@@ -7,6 +7,7 @@ import { applyChanges, flattenFiles } from "@/lib/agent/apply-changes";
 import { changesOf } from "@/lib/agent/timeline";
 import type { AgentEvent } from "@/lib/agent/events";
 import type { ComboEntry } from "@/lib/combos";
+import type { AgentMode } from "@/lib/agent/modes";
 
 /** The model, and the models to try when it fails, for one Claude Code run. */
 export type AgentChoice = {
@@ -14,6 +15,8 @@ export type AgentChoice = {
   model: string;
   fallbacks?: ComboEntry[];
   strategy?: "priority" | "round_robin";
+  /** How much Claude Code may do without asking. The server uses "edits" when it is missing. */
+  mode?: AgentMode;
 };
 
 /** One question from the student and everything Claude Code did about it. */
@@ -163,6 +166,7 @@ export function useAgent({ reconnectDelayMs = 1000 }: { reconnectDelayMs?: numbe
             model: { provider: choice.provider, model: choice.model },
             ...(choice.fallbacks?.length ? { fallbacks: choice.fallbacks } : {}),
             ...(choice.strategy ? { strategy: choice.strategy } : {}),
+            ...(choice.mode ? { mode: choice.mode } : {}),
             newConversation: newConversation.current,
           }),
           signal: controller.signal,

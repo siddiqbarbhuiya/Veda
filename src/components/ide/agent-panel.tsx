@@ -1,25 +1,32 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { AlertCircle, ArrowDown, Info, Layers, RotateCw, Send, ShieldCheck, Square, Terminal } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AlertCircle, ArrowDown, Info, Layers, Minimize2, RotateCw, ShieldCheck, SquarePen, Terminal } from "lucide-react";
 import { answeredKey, useAgent, type AgentChoice } from "@/hooks/use-agent";
+import { useAttachments } from "@/hooks/use-attachments";
 import { useModelCatalog } from "@/hooks/use-model-catalog";
+import { useStopwatch } from "@/hooks/use-stopwatch";
+import { withAttachments } from "@/lib/attachments";
+import { DEFAULT_AGENT_MODE, isAgentMode, type AgentMode } from "@/lib/agent/modes";
 import { AGENT_PROVIDERS } from "@/lib/agent/env";
-import { buildTimeline, changesOf, openPermissions } from "@/lib/agent/timeline";
+import { buildTimeline, changesOf, estimateContextTokens, openPermissions } from "@/lib/agent/timeline";
 import { orderEntries } from "@/lib/combos";
 import { useCombos } from "@/hooks/use-combos";
 import { Button, buttonStyles } from "@/components/ui/button";
-import { controlClass } from "@/components/ui/field";
-import { cn } from "@/lib/cn";
 import { AgentTimeline } from "./agent-timeline";
 import { ChangesCard } from "./changes-card";
 import { ChatMessageView } from "./chat-message";
 import { ComboDialog } from "./combo-dialog";
+import { Composer, type SlashCommand } from "./composer";
+import { ModeMenu } from "./mode-menu";
 import { ModelPicker } from "./model-picker";
 import { useIdeEvent } from "./ide-events";
 
 const SUGGESTIONS = ["Add a README with setup steps", "Add input checks to this app", "Write tests for the main file"];
 const MODEL_STORAGE_KEY = "veda:agent-model";
+const MODE_STORAGE_KEY = "veda:agent-mode";
+/** Used for the context ring when the provider does not tell the context size. */
+const DEFAULT_CONTEXT_TOKENS = 128_000;
 const NEAR_BOTTOM_PX = 80;
 
 function readSavedModel(): string | null {
@@ -39,6 +46,15 @@ function answeredIds(turnId: number, events: { type: string; id?: string }[], an
   return out;
 }
 
+function readMode(): AgentMode {
+  try {
+    const v = localStorage.getItem(MODE_STORAGE_KEY);
+    return isAgentMode(v) ? v : DEFAULT_AGENT_MODE;
+  } catch {
+    return DEFAULT_AGENT_MODE;
+  }
+}
+
 /**
  * The Claude Code tab. Claude Code runs in a private cloud sandbox. The student reviews every file change.
  * Models: Anthropic (own key) and OpenRouter (own key), alone or as a combo.
@@ -50,7 +66,10 @@ export default function AgentPanel() {
   const { active: activeCombo } = useCombos();
   const [comboOpen, setComboOpen] = useState(false);
   const [input, setInput] = useState("");
+  const [mode, setMode] = useState<AgentMode>(readMode);
   const [showJump, setShowJump] = useState(false);
+  const files = useAttachments();
+  const time = useStopwatch(agent.running);
   const scrollRef = useRef<HTMLDivElement>(null);
   const atBottomRef = useRef(true);
   const taRef = useRef<HTMLTextAreaElement>(null);
@@ -97,13 +116,6 @@ export default function AgentPanel() {
     else setShowJump(true);
   }, [agent.turns, agent.error, scrollToBottom]);
 
-  useLayoutEffect(() => {
-    const el = taRef.current;
-    if (!el) return;
-    el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, 188)}px`;
-  }, [input]);
-
   useIdeEvent("veda:new-chat", ({ tab }) => {
     if (tab === "agent") agent.newChat();
   });
@@ -111,19 +123,48 @@ export default function AgentPanel() {
   const choice = (): AgentChoice | null => {
     if (combo) {
       const [head, ...rest] = orderEntries(combo, roundRobin.current++);
-      return { provider: head.provider, model: head.model, fallbacks: rest, strategy: combo.strategy };
+      return { provider: head.provider, model: head.model, fallbacks: rest, strategy: combo.strategy, mode };
     }
-    return item ? { provider: item.provider, model: item.model } : null;
+    return item ? { provider: item.provider, model: item.model, mode } : null;
   };
 
   const submit = () => {
     const pick = choice();
     if (!input.trim() || agent.running || !pick) return;
-    const text = input;
+    const text = withAttachments(input, files.attachments);
     setInput("");
+    files.clear();
     atBottomRef.current = true;
     void agent.send(text, pick);
   };
+
+  const commands: SlashCommand[] = [
+    {
+      id: "compact",
+      label: "Compact conversation",
+      description: "Claude Code summarizes the conversation to free context (/compact).",
+      icon: <Minimize2 size={14} aria-hidden="true" />,
+      disabled: agent.turns.length === 0 || agent.running || !(combo || item),
+      run: () => {
+        const pick = choice();
+        if (pick) void agent.send("/compact", pick);
+      },
+    },
+    {
+      id: "clear",
+      label: "New conversation",
+      description: "Start again with an empty conversation.",
+      icon: <SquarePen size={14} aria-hidden="true" />,
+      run: agent.newChat,
+    },
+    {
+      id: "combos",
+      label: "Model combos…",
+      description: "Try several models in order when one fails.",
+      icon: <Layers size={14} aria-hidden="true" />,
+      run: () => setComboOpen(true),
+    },
+  ];
 
   const canSend = !!(combo || item);
   const empty = agent.turns.length === 0 && !agent.error;
@@ -260,75 +301,66 @@ export default function AgentPanel() {
         </div>
       ) : null}
 
-      <div className="sticky bottom-0 shrink-0 border-t border-line bg-panel p-3">
-        <textarea
-          ref={taRef}
+      <div className="sticky bottom-0 shrink-0 bg-panel p-2">
+        <Composer
           value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              // IME: Enter confirms the composed Indic character, not the message.
-              if (e.nativeEvent.isComposing || e.keyCode === 229) return;
-              e.preventDefault();
-              submit();
-            }
-          }}
-          rows={2}
+          onChange={setInput}
+          onSubmit={submit}
           placeholder="Tell Claude Code what to do…"
-          title="Enter to send. Shift+Enter for a new line."
-          aria-label="Message to Claude Code"
-          className={cn(controlClass, "wrap-anywhere resize-none py-2 leading-relaxed")}
-        />
-        <div className="mt-2 flex items-center gap-1.5">
-          {combo ? (
-            <div className="flex h-8 min-w-0 flex-1 items-center gap-1.5 rounded-md border border-accent bg-accent-subtle px-2 text-caption text-fg">
-              <Layers size={14} aria-hidden="true" className="shrink-0 text-accent-text" />
-              <span className="min-w-0 flex-1 truncate" title={combo.entries.map((e) => e.model).join(" → ")}>
-                Combo: {combo.name}
-              </span>
-            </div>
-          ) : (
-            <ModelPicker
-              items={items}
-              value={selected}
-              onChange={(k) => {
-                setSaved(k);
+          ariaLabel="Message to Claude Code"
+          textareaRef={taRef}
+          running={agent.running}
+          onStop={agent.stop}
+          canSend={!!input.trim() && canSend}
+          attachments={files.attachments}
+          onAttach={(f) => void files.add(f)}
+          onRemoveAttachment={files.remove}
+          attachError={files.error}
+          commands={commands}
+          context={{ used: estimateContextTokens(agent.turns), limit: item?.contextLength ?? DEFAULT_CONTEXT_TOKENS }}
+          time={time}
+          model={
+            combo ? (
+              <button
+                type="button"
+                onClick={() => setComboOpen(true)}
+                title={combo.entries.map((e) => e.model).join(" → ")}
+                className="flex h-6 max-w-full items-center gap-1 rounded-md bg-accent-subtle px-2 text-caption text-fg focus-visible:outline-2 focus-visible:outline-ring"
+              >
+                <Layers size={12} aria-hidden="true" className="shrink-0 text-accent-text" />
+                <span className="min-w-0 truncate">Combo: {combo.name}</span>
+              </button>
+            ) : (
+              <ModelPicker
+                items={items}
+                value={selected}
+                onChange={(k) => {
+                  setSaved(k);
+                  try {
+                    localStorage.setItem(MODEL_STORAGE_KEY, k);
+                  } catch {
+                    /* storage blocked */
+                  }
+                }}
+                loading={catalogState === "loading"}
+                label="Claude Code model"
+              />
+            )
+          }
+          mode={
+            <ModeMenu
+              value={mode}
+              onChange={(m) => {
+                setMode(m);
                 try {
-                  localStorage.setItem(MODEL_STORAGE_KEY, k);
+                  localStorage.setItem(MODE_STORAGE_KEY, m);
                 } catch {
                   /* storage blocked */
                 }
               }}
-              loading={catalogState === "loading"}
-              label="Claude Code model"
             />
-          )}
-          <Button
-            variant={combo ? "secondary" : "ghost"}
-            size="icon-sm"
-            aria-label="Model combos"
-            title="Model combos"
-            aria-pressed={!!combo}
-            onClick={() => setComboOpen(true)}
-          >
-            <Layers size={14} aria-hidden="true" />
-          </Button>
-          {agent.running ? (
-            <Button variant="danger" size="sm" onClick={agent.stop} leadingIcon={<Square size={14} aria-hidden="true" />}>
-              Stop
-            </Button>
-          ) : (
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={submit}
-              disabled={!input.trim() || !canSend}
-              leadingIcon={<Send size={14} aria-hidden="true" />}
-            >
-              Send
-            </Button>
-          )}
-        </div>
+          }
+        />
       </div>
       <ComboDialog open={comboOpen} onClose={() => setComboOpen(false)} items={items} />
     </div>

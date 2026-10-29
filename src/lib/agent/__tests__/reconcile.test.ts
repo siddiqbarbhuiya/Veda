@@ -57,6 +57,7 @@ const input = (runId: string) => ({
   files: {},
   maxTurns: 40,
   maxSeconds: 600,
+  mode: "edits" as const,
 });
 
 describe("reconcileRuns", () => {

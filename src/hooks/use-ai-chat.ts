@@ -111,6 +111,41 @@ function buildFileContext(file: { path: string; content?: string } | null | unde
   );
 }
 
+const COMPACT_PROMPT =
+  "Summarize our conversation so far in under 200 words. Keep the facts, the decisions and the names of any code we need to continue.";
+
+/** Read an SSE reply to the end and return its text. An `error` event becomes a ChatError. */
+async function readReplyText(body: ReadableStream<Uint8Array>): Promise<{ text: string; failed: ChatError | null }> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let text = "";
+  let failed: ChatError | null = null;
+  const handle = (block: string) => {
+    for (const line of block.split("\n")) {
+      if (!line.startsWith("data:")) continue;
+      try {
+        const evt = JSON.parse(line.slice(5).trim()) as { chunk?: string; error?: string; code?: string; retry_after?: number };
+        if (evt.error) failed = describeChatError(502, evt.code ?? "provider_error", evt.error, evt.retry_after);
+        if (evt.chunk) text += evt.chunk;
+      } catch {
+        /* not JSON */
+      }
+    }
+  };
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer = (buffer + decoder.decode(value, { stream: true })).replace(/\r\n/g, "\n");
+    const parts = buffer.split("\n\n");
+    buffer = parts.pop() ?? "";
+    parts.forEach(handle);
+  }
+  buffer += decoder.decode();
+  if (buffer.trim()) handle(buffer);
+  return { text, failed };
+}
+
 export function useAiChat() {
   const { activeFile } = useFileSystem();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -265,6 +300,72 @@ export function useAiChat() {
     [activeFile],
   );
 
+  /**
+   * Replace the conversation with a short summary, so later messages carry less context.
+   * The summary is asked from the same model. The history becomes a summary message and an acknowledgement.
+   */
+  const compact = useCallback(async (choice: ModelChoice) => {
+    if (abortRef.current || messagesRef.current.length < 2) return;
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const gen = ++genRef.current;
+    const stale = () => gen !== genRef.current;
+    setError(null);
+    setTruncated(false);
+    setIsStreaming(true);
+    let started = false;
+    try {
+      const res = await fetch("/api/ai/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          provider: choice.provider,
+          model: choice.model,
+          messages: [...trimHistory(messagesRef.current), { role: "user", content: COMPACT_PROMPT }],
+          stream: true,
+          ...(choice.fallbacks && choice.fallbacks.length > 0 ? { fallbacks: choice.fallbacks } : {}),
+        }),
+        signal: controller.signal,
+      });
+      if (!res.ok || !res.body) {
+        let body: { error?: string; code?: string; retry_after?: number } = {};
+        try {
+          body = await res.json();
+        } catch {
+          /* not JSON */
+        }
+        const header = Number(res.headers.get("Retry-After"));
+        const failure = describeChatError(res.status, body.code, body.error, body.retry_after ?? (header > 0 ? header : undefined));
+        // "Retry" would send the last message again, which is not what the student asked for.
+        if (!stale()) setError({ ...failure, action: failure.action?.kind === "retry" ? undefined : failure.action, at: Date.now() });
+        return;
+      }
+      started = true;
+      const { text, failed } = await readReplyText(res.body);
+      if (stale()) return;
+      if (failed) {
+        setError({ ...failed, action: undefined, at: Date.now() });
+        return;
+      }
+      if (!text.trim()) {
+        setError({ code: "empty_reply", message: "The model returned no summary. Try again, or pick another model.", at: Date.now() });
+        return;
+      }
+      commit([
+        { role: "user", content: `Summary of our conversation so far:\n\n${text.trim()}` },
+        { role: "assistant", content: "Understood. I will continue from this summary." },
+      ]);
+    } catch (err) {
+      if ((err as Error).name !== "AbortError" && !stale()) {
+        setError({ code: "network", message: "Network problem. Check your connection and try again.", at: Date.now() });
+      }
+    } finally {
+      if (abortRef.current === controller) abortRef.current = null;
+      if (!stale()) setIsStreaming(false);
+      if (started) notifyBalanceChanged();
+    }
+  }, []);
+
   const stop = useCallback(() => abortRef.current?.abort(), []);
 
   const retry = useCallback(() => {
@@ -300,6 +401,7 @@ export function useAiChat() {
     stop,
     retry,
     continueReply,
+    compact,
     newChat,
     truncated,
     draft,

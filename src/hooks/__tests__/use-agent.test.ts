@@ -41,6 +41,20 @@ beforeEach(() => vi.clearAllMocks());
 afterEach(() => vi.unstubAllGlobals());
 
 describe("useAgent", () => {
+  it("sends the chosen mode with the request, and sends none when there is no choice", async () => {
+    const fetchMock = vi.fn().mockImplementation(async () => sse([{ seq: 0, type: "done" }]));
+    vi.stubGlobal("fetch", fetchMock);
+    const { result } = renderHook(() => useAgent({ reconnectDelayMs: 0 }));
+    await act(async () => {
+      await result.current.send("plan it", { ...choice, mode: "plan" });
+    });
+    await act(async () => {
+      await result.current.send("again", choice);
+    });
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).mode).toBe("plan");
+    expect("mode" in JSON.parse(fetchMock.mock.calls[1][1].body)).toBe(false);
+  });
+
   it("sends the project, the prompt and the model, and collects events", async () => {
     const fetchMock = vi.fn().mockResolvedValue(sse([text(0), { seq: 1, type: "done" }]));
     vi.stubGlobal("fetch", fetchMock);

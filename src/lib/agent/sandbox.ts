@@ -1,4 +1,5 @@
 import type { AgentEvent } from "./events";
+import type { AgentMode } from "./modes";
 
 /** Everything the runner inside the sandbox needs for one run. */
 export type RunnerInput = {
@@ -13,6 +14,8 @@ export type RunnerInput = {
   files: Record<string, string>;
   maxTurns: number;
   maxSeconds: number;
+  /** How much Claude Code may do without asking. */
+  mode: AgentMode;
 };
 
 /** One running sandbox that belongs to one student. */

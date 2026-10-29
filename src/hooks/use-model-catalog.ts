@@ -21,6 +21,8 @@ export type ModelItem = {
   rate: Rate | null;
   /** Extra text, for example the context size. */
   hint?: string;
+  /** Context window in tokens, when the provider tells it. */
+  contextLength?: number;
 };
 
 type OpenRouterRow = {
@@ -132,6 +134,7 @@ export function useModelCatalog(providers?: readonly string[]) {
           keyed: orKeyed,
           rate: m.rate,
           hint: ctxHint(m.context_length),
+          contextLength: m.context_length || undefined,
         });
       }
     }

@@ -1,3 +1,4 @@
+import { estimateTokens } from "@/lib/billing/tokens";
 import type { AgentEvent, FileChange } from "./events";
 
 /** What the timeline shows for one turn. Tool results are merged into their tool call. */
@@ -67,4 +68,21 @@ export function openPermissions(events: AgentEvent[]): Set<string> {
     else if (e.type === "tool_result" || e.type === "done") open.clear();
   }
   return open;
+}
+
+/**
+ * A rough size of the conversation in tokens: the requests, the messages, and the tool calls and results.
+ * Claude Code does not report its context size to the browser, so this is an estimate for the context ring.
+ */
+export function estimateContextTokens(turns: { prompt: string; events: AgentEvent[] }[]): number {
+  let tokens = 0;
+  for (const t of turns) {
+    tokens += estimateTokens(t.prompt);
+    for (const e of t.events) {
+      if (e.type === "text" || e.type === "thinking") tokens += estimateTokens(e.text);
+      else if (e.type === "tool_use") tokens += estimateTokens(e.summary) + 8;
+      else if (e.type === "tool_result") tokens += estimateTokens(e.output);
+    }
+  }
+  return tokens;
 }

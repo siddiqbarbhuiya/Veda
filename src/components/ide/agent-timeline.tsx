@@ -4,7 +4,7 @@ import { AlertCircle, Brain, Check, FileText, Loader2, Search, ShieldAlert, Term
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
 import type { TimelineItem } from "@/lib/agent/timeline";
-import { ChatMessageView } from "./chat-message";
+import { ChatMessageView, Markdown } from "./chat-message";
 
 const ICON_PROPS = { size: 14, "aria-hidden": true, className: "shrink-0 text-fg-3" } as const;
 
@@ -54,6 +54,12 @@ function ToolCard({ item, running }: { item: Extract<TimelineItem, { kind: "tool
   );
 }
 
+const ASKS: Record<string, string> = {
+  Bash: "Claude Code asks to run a command",
+  Edit: "Claude Code asks to edit a file",
+  Write: "Claude Code asks to write a file",
+};
+
 function PermissionCard({
   item,
   open,
@@ -63,27 +69,35 @@ function PermissionCard({
   open: boolean;
   onAnswer: (allow: boolean, always: boolean) => void;
 }) {
+  const isPlan = item.tool === "ExitPlanMode";
+  const canAlways = item.tool === "Bash" || item.tool === "Edit" || item.tool === "Write";
   return (
     <div role="group" aria-label="Permission request" className="rounded-md border border-warning/40 bg-warning-subtle p-2 text-caption">
       <p className="flex items-center gap-1.5 font-medium text-warning">
         <ShieldAlert size={14} aria-hidden="true" />
-        Claude Code asks to run {item.tool}
+        {isPlan ? "Claude Code has a plan" : (ASKS[item.tool] ?? `Claude Code asks to use ${item.tool}`)}
       </p>
-      <pre className="mt-1.5 max-h-24 overflow-auto whitespace-pre-wrap wrap-anywhere rounded bg-sunken px-2 py-1 font-mono text-fg">
-        {item.summary}
-      </pre>
+      {isPlan ? (
+        <div className="mt-1.5 max-h-56 overflow-auto rounded bg-sunken px-2 py-1.5 text-fg">
+          <Markdown text={item.summary} />
+        </div>
+      ) : (
+        <pre className="mt-1.5 max-h-24 overflow-auto whitespace-pre-wrap wrap-anywhere rounded bg-sunken px-2 py-1 font-mono text-fg">
+          {item.summary}
+        </pre>
+      )}
       {open ? (
         <div className="mt-2 flex flex-wrap gap-1.5">
           <Button variant="primary" size="xs" onClick={() => onAnswer(true, false)}>
-            Allow
+            {isPlan ? "Approve plan" : "Allow"}
           </Button>
-          {item.tool === "Bash" ? (
+          {canAlways ? (
             <Button variant="secondary" size="xs" onClick={() => onAnswer(true, true)}>
-              Allow all commands in this run
+              {item.tool === "Bash" ? "Allow all commands in this run" : "Allow all edits in this run"}
             </Button>
           ) : null}
           <Button variant="secondary" size="xs" onClick={() => onAnswer(false, false)}>
-            Deny
+            {isPlan ? "Keep planning" : "Deny"}
           </Button>
         </div>
       ) : (

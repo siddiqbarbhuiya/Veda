@@ -338,3 +338,64 @@ describe("useAiChat", () => {
     expect(result.current.error).toBeNull();
   });
 });
+
+describe("useAiChat compact", () => {
+  const choice = { provider: "openrouter", model: "a/b:free" };
+
+  it("replaces the conversation with a summary and an acknowledgement", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(sseResponse(EVENTS))
+      .mockResolvedValueOnce(
+        sseResponse([
+          { chunk: "We talked about ", done: false },
+          { chunk: "a todo app.", done: false },
+          { chunk: "", done: true, cost_paise: 0 },
+        ])
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    const { result } = renderHook(() => useAiChat());
+    await act(async () => {
+      await result.current.sendMessage("first question", choice);
+    });
+    expect(result.current.messages).toHaveLength(2);
+    await act(async () => {
+      await result.current.compact(choice);
+    });
+    const body = JSON.parse(fetchMock.mock.calls[1][1].body);
+    expect(body.messages.at(-1).content).toMatch(/Summarize our conversation/);
+    expect(result.current.messages).toEqual([
+      { role: "user", content: "Summary of our conversation so far:\n\nWe talked about a todo app." },
+      { role: "assistant", content: "Understood. I will continue from this summary." },
+    ]);
+    expect(result.current.isStreaming).toBe(false);
+  });
+
+  it("does nothing when there is no conversation yet", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const { result } = renderHook(() => useAiChat());
+    await act(async () => {
+      await result.current.compact(choice);
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps the conversation and shows an error when the summary fails", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(sseResponse(EVENTS))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: "x", code: "insufficient_balance" }), { status: 402 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { result } = renderHook(() => useAiChat());
+    await act(async () => {
+      await result.current.sendMessage("q", choice);
+    });
+    await act(async () => {
+      await result.current.compact(choice);
+    });
+    expect(result.current.messages).toHaveLength(2);
+    expect(result.current.messages[0].content).toBe("q");
+    expect(result.current.error?.code).toBe("insufficient_balance");
+  });
+});

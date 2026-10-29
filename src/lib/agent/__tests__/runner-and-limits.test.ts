@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { RUNNER_SOURCE } from "../runner-source";
 import { agentLimitsFromEnv, checkAgentLimits } from "../limits";
-import { FakeSandboxProvider } from "../fake-provider";
+import { FakeSandboxProvider, defaultScript } from "../fake-provider";
 import { projectSlug, sandboxIdOf, newRunId, type SandboxHandle } from "../sandbox";
 
 describe("RUNNER_SOURCE", () => {
@@ -71,6 +71,7 @@ describe("FakeSandboxProvider", () => {
     files: { "README.md": "# Hi\n" },
     maxTurns: 40,
     maxSeconds: 600,
+    mode: "edits" as const,
   };
 
   it("reuses one sandbox for one student", async () => {
@@ -99,5 +100,36 @@ describe("FakeSandboxProvider", () => {
     await h.startRun(input, {});
     const rest = await h.readEvents("fake1.r1", 3);
     expect(rest[0].seq).toBe(3);
+  });
+});
+
+describe("fake scenarios", () => {
+  const base = { runId: "f.r", project: "p", model: "m", newConversation: true, files: { "README.md": "# R\n" }, maxTurns: 40, maxSeconds: 600, mode: "edits" as const };
+  const types = (prompt: string) => defaultScript({ ...base, prompt }).map((e) => e.type);
+
+  it("nochange ends with no changes event", () => {
+    expect(types("please nochange")).not.toContain("changes");
+    expect(types("please nochange").at(-1)).toBe("done");
+  });
+  it("fail sends an error and then done", () => {
+    expect(types("this will FAIL")).toEqual(expect.arrayContaining(["error", "done"]));
+  });
+  it("many has five changes with a delete of the README and a nested folder", () => {
+    const ev = defaultScript({ ...base, prompt: "many files" }).find((e) => e.type === "changes");
+    expect(ev && "changes" in ev ? ev.changes.map((c) => `${c.op}:${c.path}`) : []).toEqual([
+      "create:src/app.js",
+      "create:src/util/math.js",
+      "create:tests/app.test.js",
+      "update:index.js",
+      "delete:README.md",
+    ]);
+  });
+  it("long has 14 text steps and never waits for a permission", () => {
+    const list = types("a long task");
+    expect(list.filter((x) => x === "text")).toHaveLength(14);
+    expect(list).not.toContain("permission");
+  });
+  it("any other prompt gives the basic run with a permission request", () => {
+    expect(types("hello")).toContain("permission");
   });
 });

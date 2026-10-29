@@ -53,7 +53,7 @@ async function readAll(res: Response) {
     .map((b) => JSON.parse(b.slice(5).trim()) as { seq: number; type: string });
 }
 
-let started: { env?: Record<string, string>; input?: { files: Record<string, string>; project: string } } = {};
+let started: { env?: Record<string, string>; input?: { files: Record<string, string>; project: string; mode?: string; prompt?: string } } = {};
 let fake: FakeSandboxProvider;
 
 function spyProvider(): SandboxProvider {
@@ -171,6 +171,34 @@ describe("POST /api/agent/run", () => {
     expect(mocks.finishRunRow.mock.calls[0][1]).toBe(runId);
     // Usage in the fake script: 120 in, 40 out.
     expect(mocks.finishRunRow.mock.calls[0][2]).toMatchObject({ input_tokens: 120, output_tokens: 40, failed: false });
+  });
+
+  it("passes the chosen mode to the sandbox, and uses edits for a missing or unknown mode", async () => {
+    for (const [sent, expected] of [
+      ["plan", "plan"],
+      ["auto", "auto"],
+      ["manual", "manual"],
+      [undefined, "edits"],
+      ["bypassPermissions", "edits"],
+    ] as const) {
+      started = {};
+      const res = await POST(post({ ...validBody, ...(sent ? { mode: sent } : {}) }));
+      expect(res.status).toBe(200);
+      // The script of some modes waits for a different request, so end the run with Stop.
+      const runId = res.headers.get("X-Agent-Run")!;
+      await (await fake.connect(runId.split(".")[0]))?.stop(runId);
+      await readAll(res);
+      expect(started.input?.mode, String(sent)).toBe(expected);
+    }
+  });
+
+  it("accepts a long prompt with attached files up to 130,000 characters", async () => {
+    const ok = await POST(post({ ...validBody, prompt: "x".repeat(129_000) }));
+    expect(ok.status).toBe(200);
+    await stopOrAnswer(ok.headers.get("X-Agent-Run")!);
+    await readAll(ok);
+    const tooLong = await POST(post({ ...validBody, prompt: "x".repeat(130_001) }));
+    expect(tooLong.status).toBe(400);
   });
 
   it("gives the sandbox a token and never the real key", async () => {

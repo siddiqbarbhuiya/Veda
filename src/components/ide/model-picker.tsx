@@ -1,12 +1,18 @@
 "use client";
 
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import { Check, ChevronUp } from "lucide-react";
+import { Check, TriangleAlert } from "lucide-react";
 import type { ModelItem } from "@/hooks/use-model-catalog";
 import { cn } from "@/lib/cn";
 import { controlClass } from "@/components/ui/field";
 
 const MAX_ROWS = 80;
+
+/** A short name for the small pill: no "(free)" suffix and no "Vendor:" prefix. The full name stays in the title. */
+export function shortName(label: string): string {
+  const base = label.replace(/\s*\(free\)\s*$/i, "").replace(/^[^:]{1,30}:\s+/, "");
+  return base || label;
+}
 
 /** Case-insensitive match on label, model id and group. Words are matched one by one. */
 export function filterItems(items: ModelItem[], query: string, freeOnly: boolean): ModelItem[] {
@@ -101,11 +107,12 @@ export function ModelPicker({
   const buttonText = selected ? selected.label : loading ? "Loading models…" : "No model";
 
   return (
-    <div ref={rootRef} className="min-w-0 flex-1" onKeyDown={open ? onKeyDown : undefined}>
+    <div ref={rootRef} className="min-w-0" onKeyDown={open ? onKeyDown : undefined}>
       <button
         ref={buttonRef}
         type="button"
-        aria-label={`${label}: ${buttonText}`}
+        aria-label={`${label}: ${buttonText}${selected && selected.keyed === false ? " (no key)" : ""}`}
+        title={selected ? `${selected.model}${selected.keyed === false ? " - no key saved for this provider" : ""}` : undefined}
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-controls={open ? listId : undefined}
@@ -114,20 +121,17 @@ export function ModelPicker({
           setActive(Math.max(0, shown.findIndex((i) => i.key === value)));
           setOpen((o) => !o);
         }}
-        className={cn(
-          controlClass,
-          "flex h-8 items-center justify-between gap-1 px-2 text-left text-caption sm:h-8 sm:text-caption",
-        )}
+        className="flex h-6 max-w-full min-w-0 items-center gap-1 rounded-md bg-fg/[0.08] px-2 text-caption text-fg transition-colors hover:bg-fg/[0.12] focus-visible:outline-2 focus-visible:outline-ring disabled:opacity-45"
       >
-        <span className="min-w-0 flex-1 truncate">{buttonText}</span>
         {selected && selected.keyed === false ? (
-          <span className="shrink-0 text-warning">no key</span>
+          <TriangleAlert size={12} aria-hidden="true" className="shrink-0 text-warning" />
         ) : null}
-        <ChevronUp size={14} aria-hidden="true" className="shrink-0 text-fg-3" />
+        <span className="min-w-0 truncate">{selected ? shortName(selected.label) : buttonText}</span>
+        {selected?.free ? <span className="shrink-0 text-fg-3">Free</span> : null}
       </button>
 
       {open ? (
-        <div className="absolute inset-x-3 bottom-full z-40 mb-1 flex max-h-80 flex-col rounded-lg border border-line-strong bg-overlay shadow-e2 animate-fade-in">
+        <div className="absolute inset-x-2 bottom-full z-40 mb-1 flex max-h-80 flex-col rounded-lg border border-line-strong bg-overlay shadow-e2 animate-fade-in">
           <div className="flex flex-col gap-2 border-b border-line p-2">
             <input
               ref={searchRef}

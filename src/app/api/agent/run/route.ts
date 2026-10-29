@@ -9,6 +9,7 @@ import { getSandboxProvider } from "@/lib/agent/provider";
 import { SnapshotTooLargeError, snapshotFiles } from "@/lib/agent/snapshot";
 import { tailRun, tally, type RunTally } from "@/lib/agent/tail";
 import { parseEntries, type ComboEntry } from "@/lib/combos";
+import { DEFAULT_AGENT_MODE, isAgentMode } from "@/lib/agent/modes";
 import type { FileNode } from "@/lib/persistence/indexeddb";
 
 // Node.js runtime: signing the token and decrypting keys use node:crypto.
@@ -17,7 +18,8 @@ export const runtime = "nodejs";
 export const maxDuration = 300;
 
 const MAX_BODY_CHARS = 8_000_000;
-const MAX_PROMPT_CHARS = 20_000;
+// Attached files are added to the prompt text, so the limit is larger than for a typed message.
+const MAX_PROMPT_CHARS = 130_000;
 const MAX_FALLBACKS = 4;
 // End the stream this long before the host would kill the function, so the client can reconnect cleanly.
 const DEADLINE_MARGIN_MS = 15_000;
@@ -103,6 +105,7 @@ export async function POST(request: Request): Promise<Response> {
   }
   const first: ComboEntry = { provider: model.provider, model: model.model };
   const strategy = body.strategy === "round_robin" ? "round_robin" : "priority";
+  const agentMode = isAgentMode(body.mode) ? body.mode : DEFAULT_AGENT_MODE;
 
   let snapshot;
   try {
@@ -186,6 +189,7 @@ export async function POST(request: Request): Promise<Response> {
         files: snapshot.files,
         maxTurns: limits.maxTurns,
         maxSeconds: limits.runMaxSeconds,
+        mode: agentMode,
       },
       env
     );

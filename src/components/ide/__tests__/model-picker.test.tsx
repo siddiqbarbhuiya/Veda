@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
-import { ModelPicker, filterItems } from "../model-picker";
+import { ModelPicker, filterItems, shortName } from "../model-picker";
 import type { ModelItem } from "@/hooks/use-model-catalog";
 
 const item = (over: Partial<ModelItem>): ModelItem => ({
@@ -33,7 +33,7 @@ describe("filterItems", () => {
 describe("ModelPicker", () => {
   it("marks a provider without a key", () => {
     render(<ModelPicker items={items} value="openai|gpt-4o" onChange={() => {}} />);
-    expect(screen.getByRole("button", { name: /Model: gpt-4o/ }).textContent).toContain("no key");
+    expect(screen.getByRole("button", { name: /Model: gpt-4o \(no key\)/ })).toBeTruthy();
   });
 
   it("opens, filters with Free only and selects with a click", () => {
@@ -74,5 +74,17 @@ describe("ModelPicker", () => {
     fireEvent.click(screen.getByRole("button", { name: /Model:/ }));
     expect(screen.getAllByRole("option")).toHaveLength(80);
     expect(screen.getByText(/Showing 80 of 100/)).toBeTruthy();
+  });
+});
+
+describe("shortName", () => {
+  it("drops the free suffix and the vendor prefix", () => {
+    expect(shortName("Recursive: Flint (free)")).toBe("Flint");
+    expect(shortName("OpenAI: GPT-6.1 Terra Pro")).toBe("GPT-6.1 Terra Pro");
+    expect(shortName("claude-haiku-3.5")).toBe("claude-haiku-3.5");
+    expect(shortName("Mixtral 8x7B: Instruct (free)")).toBe("Instruct");
+  });
+  it("keeps the whole name when nothing is left", () => {
+    expect(shortName("(free)")).toBe("(free)");
   });
 });

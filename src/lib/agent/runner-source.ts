@@ -35,6 +35,7 @@ function cut(s, n) {
 
 function summarize(name, inp) {
   inp = inp || {};
+  if (name === "ExitPlanMode") return cut(inp.plan, 4000);
   if (name === "Bash") return cut(inp.command, 300);
   if (inp.file_path) return cut(inp.file_path, 300);
   if (inp.path) return cut(inp.path, 300);
@@ -105,9 +106,10 @@ const deadlineTimer = setTimeout(() => {
   ac.abort();
 }, input.maxSeconds * 1000);
 
-let bashAlways = false;
+// Tools the student allowed for the rest of this run ("Allow all ... in this run").
+const alwaysAllowed = new Set();
 async function canUseTool(toolName, toolInput) {
-  if (toolName === "Bash" && bashAlways) return { behavior: "allow", updatedInput: toolInput };
+  if (alwaysAllowed.has(toolName)) return { behavior: "allow", updatedInput: toolInput };
   const id = crypto.randomUUID();
   emit({ type: "permission", id: id, tool: toolName, summary: summarize(toolName, toolInput) });
   const answerFile = path.join(RUN_DIR, "perm-" + id + ".json");
@@ -124,7 +126,7 @@ async function canUseTool(toolName, toolInput) {
         continue;
       }
       if (answer.allow) {
-        if (answer.always && toolName === "Bash") bashAlways = true;
+        if (answer.always && (toolName === "Bash" || toolName === "Edit" || toolName === "Write")) alwaysAllowed.add(toolName);
         return { behavior: "allow", updatedInput: toolInput };
       }
       return { behavior: "deny", message: "The student did not allow this action." };
@@ -154,12 +156,17 @@ async function main() {
     }
   }
 
+  // The mode decides what runs without asking:
+  //   manual: asks for every edit and command   edits: edits run, commands ask
+  //   plan: reads and plans, then asks to leave plan mode   auto: nothing asks (the sandbox is the safety net)
+  const MODE = input.mode || "edits";
+  const READ_TOOLS = ["Read", "Glob", "Grep", "TodoWrite"];
   const options = {
     cwd: PROJECT,
     model: input.model,
     maxTurns: input.maxTurns,
-    permissionMode: "acceptEdits",
-    allowedTools: ["Read", "Glob", "Grep", "Edit", "Write", "TodoWrite"],
+    permissionMode: MODE === "manual" ? "default" : MODE === "plan" ? "plan" : MODE === "auto" ? "bypassPermissions" : "acceptEdits",
+    allowedTools: MODE === "edits" || MODE === "auto" ? READ_TOOLS.concat(["Edit", "Write"]) : READ_TOOLS,
     disallowedTools: ["WebSearch", "WebFetch"],
     canUseTool: canUseTool,
     settingSources: ["project"],
@@ -167,6 +174,7 @@ async function main() {
     abortController: ac,
     env: Object.assign({}, process.env, { CLAUDE_AGENT_SDK_CLIENT_APP: "veda/1.0" }),
   };
+  if (MODE === "auto") options.allowDangerouslySkipPermissions = true;
   if (resume) options.resume = resume;
 
   for await (const m of query({ prompt: input.prompt, options: options })) {
