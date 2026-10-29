@@ -64,7 +64,7 @@ The graph below shows the codebase structure — modules, components, and their 
 ![Veda Knowledge Graph](docs/graph.svg)
 
 ## Docs
-- [Environment setup](docs/setup/environment.md)
+- [Environment setup (step by step, for beginners)](docs/setup/environment.md)
 - [Design specification](docs/specs/2026-10-29-veda-mvp-design.md)
 - [Implementation plan](docs/superpowers/plans/2026-10-29-veda-mvp.md)
 
