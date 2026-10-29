@@ -156,6 +156,30 @@ export type Database = {
         };
         Relationships: [];
       };
+      projects: {
+        Row: {
+          user_id: string;
+          name: string;
+          files: unknown;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          user_id: string;
+          name: string;
+          files: unknown;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          user_id?: string;
+          name?: string;
+          files?: unknown;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
     };
     Views: { [_ in never]: never };
     Functions: { [_ in never]: never };

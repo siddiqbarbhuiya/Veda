@@ -86,7 +86,7 @@ How the app uses each key:
 
 ## 5. Create the database tables
 
-The folder `supabase/migrations/` has 8 SQL files. Run them in order, one by one.
+The folder `supabase/migrations/` has 9 SQL files. Run them in order, one by one.
 
 1. Open `https://supabase.com/dashboard/project/<project-ref>/sql/new`.
 2. Open the file `supabase/migrations/00001_create_profiles.sql` in your code editor.
@@ -106,6 +106,7 @@ The folder `supabase/migrations/` has 8 SQL files. Run them in order, one by one
 | 6 | `00006_create_profile_trigger.sql` | Trigger that makes a profile for each new user |
 | 7 | `00007_create_cleanup_cron.sql` | Job that deletes old circuit breaker rows |
 | 8 | `00008_restrict_profiles_update.sql` | Blocks users from editing their own balance |
+| 9 | `00009_create_projects.sql` | `projects` table: cloud copy of each student's files (5 MB limit, 20 projects per student, row level security) |
 
 ### Two things that surprise beginners
 
@@ -120,7 +121,7 @@ The folder `supabase/migrations/` has 8 SQL files. Run them in order, one by one
 
 ## 6. Check the database
 
-Run this query in the SQL Editor. It lists everything that the 8 files must create.
+Run this query in the SQL Editor. It lists everything that the migration files must create.
 
 ```sql
 select * from (

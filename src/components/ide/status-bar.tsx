@@ -1,7 +1,18 @@
 "use client";
 
 import { useState } from "react";
-import { AlertCircle, CheckCircle2, Cpu, FileCode2, Keyboard, Loader2, Sparkles } from "lucide-react";
+import {
+  AlertCircle,
+  CheckCircle2,
+  Cloud,
+  CloudOff,
+  CloudUpload,
+  Cpu,
+  FileCode2,
+  Keyboard,
+  Loader2,
+  Sparkles,
+} from "lucide-react";
 import { useFileSystem } from "@/hooks/use-file-system";
 import { useRuntime } from "./runtime-context";
 import { useIdeEvent } from "./ide-events";
@@ -33,7 +44,7 @@ const cell = "h-full items-center gap-1.5 px-2 text-caption text-fg-2";
 const cellButton = cn(cell, "flex transition-colors hover:bg-fg/[0.07] hover:text-fg active:bg-fg/[0.11]");
 
 export function StatusBar({ onOpenShortcuts }: { onOpenShortcuts: () => void }) {
-  const { activeFile } = useFileSystem();
+  const { activeFile, sync, syncNow } = useFileSystem();
   const { runtime } = useRuntime();
   const { status, message } = useRuntimeStatus();
   const [chat, setChat] = useState<{ model?: string; lastCostPaise?: number }>({});
@@ -47,6 +58,22 @@ export function StatusBar({ onOpenShortcuts }: { onOpenShortcuts: () => void }) 
         : status === "error"
           ? { label: "Error", icon: <AlertCircle size={14} className="text-danger" aria-hidden="true" /> }
           : { label: "Ready", icon: <CheckCircle2 size={14} className="text-success" aria-hidden="true" /> };
+
+  const cloud =
+    sync.status === "syncing"
+      ? { label: "Saving to cloud...", icon: <Loader2 size={14} className="animate-spin text-info" aria-hidden="true" /> }
+      : sync.status === "synced"
+        ? { label: "Saved to cloud", icon: <Cloud size={14} className="text-success" aria-hidden="true" /> }
+        : sync.status === "error"
+          ? { label: "Cloud save failed", icon: <CloudOff size={14} className="text-danger" aria-hidden="true" /> }
+          : sync.status === "off"
+            ? { label: "Cloud sync off", icon: <CloudOff size={14} className="text-warning" aria-hidden="true" /> }
+            : { label: "Not in cloud yet", icon: <CloudUpload size={14} aria-hidden="true" /> };
+  const cloudTitle =
+    sync.error ??
+    (sync.lastSyncedAt
+      ? `Last saved to the cloud at ${new Date(sync.lastSyncedAt).toLocaleTimeString("en-IN")}. Click to save now.`
+      : "Click to save to the cloud now.");
 
   return (
     <footer
@@ -62,6 +89,17 @@ export function StatusBar({ onOpenShortcuts }: { onOpenShortcuts: () => void }) 
           <Cpu size={14} aria-hidden="true" />
           {runtime === "node" ? "Node.js" : "Python"}
         </span>
+        <button
+          type="button"
+          className={cellButton}
+          onClick={() => void syncNow()}
+          disabled={sync.status === "syncing" || sync.status === "off"}
+          title={cloudTitle}
+          aria-label={`${cloud.label}. ${cloudTitle}`}
+        >
+          {cloud.icon}
+          <span className="hidden md:inline">{cloud.label}</span>
+        </button>
       </div>
       <div className="flex h-full min-w-0 items-center">
         {activeFile ? (

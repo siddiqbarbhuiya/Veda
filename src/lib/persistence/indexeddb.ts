@@ -31,13 +31,31 @@ export class IndexedDBStore {
     return `${userId}:${projectName}`;
   }
 
-  async save(userId: string, projectName: string, files: FileNode[]): Promise<void> {
+  /** `updatedAt` is the time of the last edit. It is kept beside the files so a cloud copy can be compared. */
+  async save(userId: string, projectName: string, files: FileNode[], updatedAt: number = Date.now()): Promise<void> {
     try {
       const db = await this.getDb();
-      await db.put(STORE_NAME, files, this.key(userId, projectName));
+      const key = this.key(userId, projectName);
+      await db.put(STORE_NAME, files, key);
+      await db.put(STORE_NAME, { updatedAt }, `${key}#meta`);
     } catch (err) {
       console.error("IndexedDBStore.save failed", err);
       this.dbPromise = null;
+    }
+  }
+
+  /** The files plus the time of the last edit (0 for a project saved before this field existed). */
+  async loadWithMeta(userId: string, projectName: string): Promise<{ files: FileNode[]; updatedAt: number } | null> {
+    const files = await this.load(userId, projectName);
+    if (!files) return null;
+    try {
+      const db = await this.getDb();
+      const meta = (await db.get(STORE_NAME, `${this.key(userId, projectName)}#meta`)) as
+        | { updatedAt?: number }
+        | undefined;
+      return { files, updatedAt: meta?.updatedAt ?? 0 };
+    } catch {
+      return { files, updatedAt: 0 };
     }
   }
 
