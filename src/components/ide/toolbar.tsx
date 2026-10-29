@@ -58,7 +58,7 @@ export default function Toolbar({ projectName }: { projectName: string }) {
           Add Credits
         </button>
         <TopupModal open={topupOpen} onClose={() => setTopupOpen(false)} onSuccess={loadProfile} />
-        <Link href="/settings" aria-label="Settings" title="Settings">{"⚙"}</Link>
+        <Link href="/dashboard" aria-label="Settings" title="Settings">{"⚙"}</Link>
         <div className="relative">
           <button
             aria-label="User menu"
