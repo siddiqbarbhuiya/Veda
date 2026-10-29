@@ -2,6 +2,13 @@
 
 ## Unreleased - Claude Code tab, OpenRouter and combos (2026-10-29)
 
+### Bring your own OmniRoute
+- Every user can save the address and key of **their own** OmniRoute (Dashboard, Keys). Their combos show in the model list under
+  "OmniRoute combos". Chat and Claude Code send requests there. Veda does not price it. Guide: `docs/setup/omniroute.md`.
+- The address is checked: https and public hosts only in production, no redirects, a host lookup before each request.
+  Development also allows `http://localhost`. New migration: `00011`.
+- Mic button, real local engine (`AGENT_SANDBOX=local`), permission modes, attachments and `/compact` (see earlier entries).
+
 ### AI panel
 - Two tabs: **Chat** and **Claude Code**. The model selector moved from the panel top to the message row at the bottom.
 - The model picker is searchable and has a "Free only" filter. It lists every OpenRouter model.

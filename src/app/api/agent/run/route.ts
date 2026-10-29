@@ -126,6 +126,10 @@ export async function POST(request: Request): Promise<Response> {
     return json({ error: "Claude Code is not set up on this server yet.", code: "agent_unavailable" }, 503);
   }
 
+  if (mode === "direct" && [first, ...fallbacks].some((e) => e.provider === "omniroute")) {
+    return json({ error: "OmniRoute works only in proxy mode, so your key stays on the server.", code: "invalid_request" }, 400);
+  }
+
   const admin = createAdminClient();
   const limits = agentLimitsFromEnv();
 

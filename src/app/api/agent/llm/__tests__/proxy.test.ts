@@ -134,4 +134,40 @@ describe("agent LLM proxy", () => {
     expect(res.status).toBe(400);
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  it("sends the request to the student's own OmniRoute with the combo name, and never follows a redirect", async () => {
+    mocks.loadProviderKey.mockResolvedValue(JSON.stringify({ baseUrl: "http://localhost:20128", apiKey: "omni-key" }));
+    const fetchMock = vi.fn().mockResolvedValue(sse());
+    vi.stubGlobal("fetch", fetchMock);
+    const res = await POST(req(token({ combo: [{ provider: "omniroute", model: "veda_combo" }] })));
+    expect(res.status).toBe(200);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("http://localhost:20128/v1/messages");
+    expect(init.headers.Authorization).toBe("Bearer omni-key");
+    expect(init.redirect).toBe("manual");
+    expect(JSON.parse(init.body).model).toBe("veda_combo");
+    expect(await res.text()).not.toContain("omni-key");
+  });
+
+  it("does not call out when the saved OmniRoute settings are unsafe", async () => {
+    mocks.loadProviderKey.mockResolvedValue(JSON.stringify({ baseUrl: "http://10.1.1.1:20128", apiKey: "k" }));
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const res = await POST(req(token({ combo: [{ provider: "omniroute", model: "veda_combo" }] })));
+    expect(res.status).toBe(400);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("falls back from OmniRoute to the next entry when it is down", async () => {
+    mocks.loadProviderKey.mockImplementation(async (_a: unknown, _u: string, provider: string) =>
+      provider === "omniroute" ? JSON.stringify({ baseUrl: "http://localhost:20128", apiKey: "omni-key" }) : REAL_KEY
+    );
+    const fetchMock = vi.fn().mockResolvedValueOnce(new Response("{}", { status: 503 })).mockResolvedValueOnce(sse());
+    vi.stubGlobal("fetch", fetchMock);
+    const res = await POST(
+      req(token({ combo: [{ provider: "omniroute", model: "veda_combo" }, { provider: "openrouter", model: "a/b:free" }] }))
+    );
+    expect(res.status).toBe(200);
+    expect(fetchMock.mock.calls[1][0]).toBe("https://openrouter.ai/api/v1/messages");
+  });
 });

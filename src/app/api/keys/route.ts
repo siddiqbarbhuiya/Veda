@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { createServerClient as createSupabaseServerClient } from "@supabase/ssr";
 import { createServerClient } from "@/lib/supabase/server";
 import { encrypt } from "@/lib/crypto/encryption";
+import { encodeConfig } from "@/lib/omniroute/config";
+import { parseBaseUrl } from "@/lib/omniroute/url";
 import { KEY_PROVIDER_VALUES, MAX_KEY_LENGTH, MAX_LABEL_LENGTH, isKeyProvider } from "@/lib/key-providers";
 import type { Database } from "@/types/database";
 
@@ -23,7 +25,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  let body: { provider?: unknown; key?: unknown; label?: unknown };
+  let body: { provider?: unknown; key?: unknown; label?: unknown; baseUrl?: unknown };
   try {
     body = await request.json();
   } catch {
@@ -58,9 +60,20 @@ export async function POST(request: Request) {
     );
   }
 
+  // OmniRoute is the student's own server: the address is saved with the key, and checked so the Veda server
+  // can never be pointed at a private network.
+  let secretText = keyValue;
+  let defaultLabel: string | null = null;
+  if (provider === "omniroute") {
+    const checked = parseBaseUrl(typeof body.baseUrl === "string" ? body.baseUrl : "");
+    if (!checked.ok) return NextResponse.json({ error: checked.error }, { status: 400 });
+    secretText = encodeConfig({ baseUrl: checked.url, apiKey: keyValue });
+    defaultLabel = new URL(checked.url).host;
+  }
+
   let encryptedParts: { encrypted: string; iv: string; authTag: string };
   try {
-    encryptedParts = encrypt(keyValue);
+    encryptedParts = encrypt(secretText);
   } catch (err) {
     console.error("keys: encryption failed:", err instanceof Error ? err.message : err);
     return NextResponse.json({ error: "Failed to save key" }, { status: 500 });
@@ -86,7 +99,7 @@ export async function POST(request: Request) {
         encrypted_key: encrypted,
         iv,
         auth_tag: authTag,
-        label: labelValue,
+        label: labelValue ?? defaultLabel,
         updated_at: new Date().toISOString(),
       },
       { onConflict: "user_id,provider" }

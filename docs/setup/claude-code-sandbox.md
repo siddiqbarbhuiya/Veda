@@ -24,7 +24,8 @@ a combo with priority fallback). Veda runs the router for you, so a student inst
 | `E2B_TEMPLATE` | No | Template name. Default `veda-claude-code` |
 | `AGENT_PUBLIC_URL` | Yes in proxy mode | Public base URL of this server, for example `https://veda.vercel.app`. In local work, a tunnel address (see below) |
 | `AGENT_KEY_MODE` | No | `proxy` (default) or `direct`. `direct` gives the real key to the sandbox. Local work only |
-| `AGENT_SANDBOX` | No | `fake` uses an in-memory fake sandbox. No E2B account and no model needed |
+| `AGENT_SANDBOX` | No | `local` runs the real Agent SDK on this computer (development only; needs `@anthropic-ai/claude-agent-sdk` in `AGENT_LOCAL_DIR/runner`). `fake` uses an in-memory fake with no model |
+| `AGENT_LOCAL_DIR` | No | Folder for local runs. Default: the system temp folder, `veda-agent` |
 | `AGENT_DAILY_MINUTES` | No | Sandbox minutes for each student each day. Default 30 |
 | `AGENT_RUN_MAX_SECONDS` | No | Stop a run after this time. Default 600 |
 | `OPENROUTER_USD_INR` | No | Exchange rate for OpenRouter prices in the chat. Default 90 |

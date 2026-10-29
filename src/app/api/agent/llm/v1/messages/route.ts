@@ -1,5 +1,6 @@
 import { createAdminClient, loadProviderKey } from "@/lib/agent/admin";
-import { UPSTREAM_URL, isAgentProvider, type AgentProvider } from "@/lib/agent/env";
+import { isAgentProvider, type AgentProvider } from "@/lib/agent/env";
+import { upstreamFor } from "@/lib/agent/upstream";
 import { verifyAgentToken } from "@/lib/agent/token";
 import { isFallbackStatus, orderEntries } from "@/lib/combos";
 
@@ -69,23 +70,28 @@ export async function POST(request: Request): Promise<Response> {
       continue;
     }
 
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
+    const extra: Record<string, string> = {
       "anthropic-version": request.headers.get("anthropic-version") ?? "2023-06-01",
     };
     const beta = request.headers.get("anthropic-beta");
-    if (beta) headers["anthropic-beta"] = beta;
-    if (provider === "openrouter") headers.Authorization = `Bearer ${key}`;
-    else headers["x-api-key"] = key;
+    if (beta) extra["anthropic-beta"] = beta;
+    const target = upstreamFor(provider, key, extra);
+    if (!target) {
+      last ??= anthropicError(400, "invalid_request_error", `The saved ${provider} settings are not valid. Save them again.`);
+      continue;
+    }
 
     let upstream: Response;
     try {
-      upstream = await fetch(UPSTREAM_URL[provider], {
+      await target.guard?.();
+      upstream = await fetch(target.url, {
         method: "POST",
-        headers,
+        headers: target.headers,
         // The model comes from the combo entry, not from what Claude Code asked for.
         body: JSON.stringify({ ...body, model: entry.model }),
         signal: request.signal,
+        // A redirect is never followed: it would be the way to a private address.
+        redirect: "manual",
       });
     } catch (err) {
       if ((err as { name?: string })?.name === "AbortError") return new Response(null, { status: 499 });

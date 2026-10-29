@@ -116,6 +116,7 @@ vi.mock("next/headers", () => ({
   cookies: vi.fn(async () => ({ getAll: () => [], set: () => {} })),
 }));
 
+import { encrypt } from "@/lib/crypto/encryption";
 import { POST, GET } from "../route";
 import { DELETE } from "../[id]/route";
 
@@ -301,5 +302,31 @@ describe("DELETE /api/keys/:id", () => {
       params: Promise.resolve({ id: "id-1" }),
     });
     expect(res.status).toBe(401);
+  });
+});
+
+describe("POST /api/keys for OmniRoute", () => {
+  it("stores the address and the key together, encrypted, and uses the host as the label", async () => {
+    const res = await POST(postReq({ provider: "omniroute", key: "omni-secret", baseUrl: "http://localhost:20128/ignored?x=1" }));
+    expect(res.status).toBe(201);
+    expect(JSON.parse(vi.mocked(encrypt).mock.calls.at(-1)![0])).toEqual({ baseUrl: "http://localhost:20128", apiKey: "omni-secret" });
+    const json = await res.json();
+    expect(json.label).toBe("localhost:20128");
+    expect(JSON.stringify(json)).not.toContain("omni-secret");
+  });
+  it("answers 400 when the address is missing, private, or not a web address", async () => {
+    for (const baseUrl of [undefined, "", "not a url", "http://192.168.1.5:20128", "http://169.254.169.254", "https://intranet", "ftp://x.example.com", "https://u:p@x.example.com"]) {
+      const res = await POST(postReq({ provider: "omniroute", key: "k", ...(baseUrl === undefined ? {} : { baseUrl }) }));
+      expect(res.status, String(baseUrl)).toBe(400);
+      expect(typeof (await res.json()).error).toBe("string");
+    }
+    expect(store).toHaveLength(0);
+  });
+  it("does not ask for an address for other providers", async () => {
+    expect((await POST(postReq({ provider: "openai", key: "sk-1" }))).status).toBe(201);
+  });
+  it("keeps a label the student typed", async () => {
+    const res = await POST(postReq({ provider: "omniroute", key: "k", baseUrl: "http://localhost:20128", label: "my router" }));
+    expect((await res.json()).label).toBe("my router");
   });
 });

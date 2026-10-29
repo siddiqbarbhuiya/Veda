@@ -40,7 +40,7 @@ export type Database = {
         Row: {
           id: string;
           user_id: string;
-          provider: "openai" | "gemini" | "anthropic" | "openrouter";
+          provider: "openai" | "gemini" | "anthropic" | "openrouter" | "omniroute";
           encrypted_key: string;
           iv: string;
           auth_tag: string;
@@ -51,7 +51,7 @@ export type Database = {
         Insert: {
           id?: string;
           user_id: string;
-          provider: "openai" | "gemini" | "anthropic" | "openrouter";
+          provider: "openai" | "gemini" | "anthropic" | "openrouter" | "omniroute";
           encrypted_key: string;
           iv: string;
           auth_tag: string;
@@ -62,7 +62,7 @@ export type Database = {
         Update: {
           id?: string;
           user_id?: string;
-          provider?: "openai" | "gemini" | "anthropic" | "openrouter";
+          provider?: "openai" | "gemini" | "anthropic" | "openrouter" | "omniroute";
           encrypted_key?: string;
           iv?: string;
           auth_tag?: string;

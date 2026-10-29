@@ -38,6 +38,11 @@ export const itemKey = (provider: string, model: string) => `${provider}|${model
 // The OpenRouter list is large and public. Keep it for the whole page visit.
 let openrouterCache: OpenRouterRow[] | null = null;
 
+type OmniRow = { id: string; combo: boolean; context_length: number };
+/** The student's own OmniRoute: "none" when not set up, "error" with a short reason when it cannot be read. */
+export type OmniState = { state: "loading" | "none" | "ready" | "error"; message?: string };
+const ZERO_RATE: Rate = { input_paise_per_1k_tokens: 0, output_paise_per_1k_tokens: 0 };
+
 function ctxHint(n: number): string | undefined {
   if (!n) return undefined;
   return n >= 1_000_000 ? `${Math.round(n / 100_000) / 10}M ctx` : `${Math.round(n / 1000)}K ctx`;
@@ -52,6 +57,8 @@ export function useModelCatalog(providers?: readonly string[]) {
   const [ratesState, setRatesState] = useState<"loading" | "ready" | "error">("loading");
   const [keyed, setKeyed] = useState<Set<string> | null>(null);
   const [openrouter, setOpenrouter] = useState<OpenRouterRow[]>(openrouterCache ?? []);
+  const [omni, setOmni] = useState<OmniRow[]>([]);
+  const [omniState, setOmniState] = useState<OmniState>({ state: "loading" });
 
   useEffect(() => {
     let cancelled = false;
@@ -105,6 +112,25 @@ export function useModelCatalog(providers?: readonly string[]) {
     };
   }, []);
 
+  useEffect(() => {
+    if (providers && !providers.includes("omniroute")) return;
+    let cancelled = false;
+    fetch("/api/models/omniroute")
+      .then(async (res) => {
+        const body = (await res.json().catch(() => ({}))) as { models?: OmniRow[]; error?: string; code?: string };
+        if (cancelled) return;
+        if (res.ok && Array.isArray(body.models)) {
+          setOmni(body.models);
+          setOmniState({ state: "ready" });
+        } else if (body.code === "not_configured") setOmniState({ state: "none" });
+        else setOmniState({ state: "error", message: body.error ?? "Could not read your OmniRoute." });
+      })
+      .catch(() => !cancelled && setOmniState({ state: "error", message: "Could not read your OmniRoute." }));
+    return () => {
+      cancelled = true;
+    };
+  }, [providers]);
+
   const items = useMemo<ModelItem[]>(() => {
     const has = (p: string) => (keyed ? keyed.has(p) : null);
     const out: ModelItem[] = [];
@@ -138,8 +164,23 @@ export function useModelCatalog(providers?: readonly string[]) {
         });
       }
     }
+    if ((!providers || providers.includes("omniroute")) && omni.length > 0) {
+      for (const m of omni) {
+        out.push({
+          key: itemKey("omniroute", m.id),
+          provider: "omniroute",
+          model: m.id,
+          label: m.id,
+          group: m.combo ? "OmniRoute combos" : "OmniRoute models",
+          free: false,
+          keyed: true,
+          rate: ZERO_RATE,
+          contextLength: m.context_length || undefined,
+        });
+      }
+    }
     return out;
-  }, [rates, openrouter, keyed, providers]);
+  }, [rates, openrouter, omni, keyed, providers]);
 
-  return { items, state: ratesState, keyed };
+  return { items, state: ratesState, keyed, omni: omniState };
 }

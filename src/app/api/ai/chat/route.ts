@@ -16,13 +16,14 @@ export const runtime = "nodejs";
 // A long stream must end before the host kills the function (a killed function cannot settle).
 export const maxDuration = 60;
 
-const PROVIDERS = ["openai", "gemini", "anthropic", "openrouter"] as const;
+const PROVIDERS = ["openai", "gemini", "anthropic", "openrouter", "omniroute"] as const;
 type Provider = (typeof PROVIDERS)[number];
 const PROVIDER_LABEL: Record<Provider, string> = {
   openai: "OpenAI",
   gemini: "Gemini",
   anthropic: "Anthropic",
   openrouter: "OpenRouter",
+  omniroute: "OmniRoute",
 };
 
 const MAX_MESSAGES = 40;
@@ -122,6 +123,8 @@ async function loadRate(
   provider: Provider,
   model: string
 ): Promise<{ rate: Rate | null; failed: boolean }> {
+  // The student pays their own OmniRoute directly, so Veda does not price it.
+  if (provider === "omniroute") return { rate: { input_paise_per_1k_tokens: 0, output_paise_per_1k_tokens: 0 }, failed: false };
   if (provider === "openrouter") {
     try {
       const found = (await fetchOpenRouterModels()).find((m) => m.id === model);

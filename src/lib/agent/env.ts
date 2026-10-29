@@ -1,12 +1,12 @@
 /** Providers that Claude Code can use. It speaks the Anthropic Messages format. */
-export const AGENT_PROVIDERS = ["anthropic", "openrouter"] as const;
+export const AGENT_PROVIDERS = ["anthropic", "openrouter", "omniroute"] as const;
 export type AgentProvider = (typeof AGENT_PROVIDERS)[number];
 
 export const isAgentProvider = (p: unknown): p is AgentProvider =>
   typeof p === "string" && (AGENT_PROVIDERS as readonly string[]).includes(p);
 
 /** Anthropic-format upstream for each provider. */
-export const UPSTREAM_URL: Record<AgentProvider, string> = {
+export const UPSTREAM_URL: Record<"anthropic" | "openrouter", string> = {
   anthropic: "https://api.anthropic.com/v1/messages",
   openrouter: "https://openrouter.ai/api/v1/messages",
 };

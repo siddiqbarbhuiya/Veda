@@ -4,7 +4,11 @@ export const KEY_PROVIDERS = [
   { value: "gemini", label: "Gemini" },
   { value: "anthropic", label: "Anthropic" },
   { value: "openrouter", label: "OpenRouter" },
+  { value: "omniroute", label: "OmniRoute" },
 ] as const;
+
+/** Providers that need an address as well as a key. The student runs their own server there. */
+export const URL_PROVIDERS: readonly string[] = ["omniroute"];
 
 export type KeyProvider = (typeof KEY_PROVIDERS)[number]["value"];
 
