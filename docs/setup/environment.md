@@ -26,8 +26,9 @@ Time needed: about 45 minutes.
 14. [Start the app and test login](#14-start-the-app-and-test-login)
 15. [Optional: MCP servers for Claude Code](#15-optional-mcp-servers-for-claude-code)
 16. [Where to find each value later](#16-where-to-find-each-value-later)
-17. [Key rotation](#17-key-rotation)
-18. [Troubleshooting](#18-troubleshooting)
+17. [Deploy to Vercel (optional)](#17-deploy-to-vercel-optional)
+18. [Key rotation](#18-key-rotation)
+19. [Troubleshooting](#19-troubleshooting)
 
 ---
 
@@ -187,7 +188,7 @@ The app encrypts each saved API key with AES-256-GCM. The secret is a 64-charact
 
 > **CAUTION:** Do not change `ENCRYPTION_SECRET` after users save API keys.
 > The old keys cannot be read with a new secret. To change it, follow
-> [Key rotation](#17-key-rotation).
+> [Key rotation](#18-key-rotation).
 > Back up the secret in a password manager.
 
 `ENCRYPTION_SECRET_OLD` is only for key rotation. Leave it empty now.
@@ -338,6 +339,7 @@ Keep `simulator` until the webhook in step 12b works.
 | `GOOGLE_OAUTH_CLIENT_ID` | Client ID | [Step 10a](#10a-make-the-google-oauth-client) |
 | `GOOGLE_OAUTH_CLIENT_SECRET` | Client secret | [Step 10a](#10a-make-the-google-oauth-client) |
 | `RAZORPAY_KEY_ID` | Test API Key (`rzp_test_...`) | [Step 12a](#12a-get-the-test-api-keys). Sample value is fine in simulator mode. |
+| `NEXT_PUBLIC_RAZORPAY_KEY_ID` | Same value as `RAZORPAY_KEY_ID` | The browser checkout needs it. Without it, live mode shows "Could not start checkout". The key ID is public. The secret is not. |
 | `RAZORPAY_KEY_SECRET` | Test Key Secret | [Step 12a](#12a-get-the-test-api-keys). Sample value is fine in simulator mode. |
 | `RAZORPAY_WEBHOOK_SECRET` | Your own webhook secret | [Step 12b](#12b-webhook-only-when-the-app-has-a-public-url). Keep the sample value until then. |
 | `PAYMENT_MODE` | `simulator` | Use `live` only with real Razorpay keys |
@@ -357,7 +359,7 @@ Keep `simulator` until the webhook in step 12b works.
 7. Open `https://supabase.com/dashboard/project/<project-ref>/editor`. Open the table `profiles`.
 8. Make sure a new row shows for you with `balance_paise` of `1000` (₹10 of free credit).
 
-If a step fails, see [Troubleshooting](#18-troubleshooting).
+If a step fails, see [Troubleshooting](#19-troubleshooting).
 
 ## 15. Optional: MCP servers for Claude Code
 
@@ -421,7 +423,74 @@ claude mcp add --scope project playwright -- npx -y @playwright/mcp@latest
 | Google Client ID | `https://console.cloud.google.com/auth/clients?project=<google-project-id>` > your client |
 | Google Client Secret | Open the client in the same page. Add a new secret. Then update Supabase and `.env.local`. |
 
-## 17. Key rotation
+## 17. Deploy to Vercel (optional)
+
+A public site gives you the HTTPS address that the Razorpay webhook needs.
+
+### 17a. Import the project
+
+1. Open https://vercel.com/new and sign in. Choose **Continue with GitHub**. Click **Authorize Vercel**.
+2. Vercel may offer 2FA setup. You can skip it now. Set it up later in your Vercel account settings.
+3. In **Import Git Repository**, enter `https://github.com/<your-user>/Veda` in the box at the top. Press Enter.
+4. Check: **Application Preset** is `Next.js`. **Root Directory** is `./`. **Project Name** is `veda`.
+
+### 17b. Add the environment variables
+
+1. Click **Environment Variables** to open the section.
+2. Click the first name field. Paste the block below with Ctrl+V. Vercel splits it into rows.
+3. Make sure the list shows 10 rows.
+
+```
+NEXT_PUBLIC_SUPABASE_URL=...
+NEXT_PUBLIC_SUPABASE_ANON_KEY=...
+SUPABASE_SERVICE_ROLE_KEY=...
+ENCRYPTION_SECRET=...
+RAZORPAY_KEY_ID=...
+NEXT_PUBLIC_RAZORPAY_KEY_ID=...
+RAZORPAY_KEY_SECRET=...
+RAZORPAY_WEBHOOK_SECRET=...
+PAYMENT_MODE=live
+NEXT_PUBLIC_APP_URL=https://<your-vercel-address>
+```
+
+Take the values from your `.env.local`. Do not copy the OAuth lines (`GITHUB_OAUTH_*`, `GOOGLE_OAUTH_*`).
+Supabase holds those.
+
+> **CAUTION:** Use `PAYMENT_MODE=live` on a public site. With `simulator`, anyone can add free balance.
+> `live` with Razorpay **test** keys charges no real money.
+
+### 17c. Deploy
+
+1. Click **Deploy**. Wait 1 to 3 minutes.
+2. Open the site address that Vercel shows.
+3. If the build fails, read the last red lines in the build log and fix that error first.
+
+### 17d. Tell Supabase about the new address
+
+1. Open `https://supabase.com/dashboard/project/<project-ref>/auth/url-configuration`.
+2. Set **Site URL** to `https://<your-vercel-address>`.
+3. Under **Redirect URLs**, click **Add URL**. Enter `https://<your-vercel-address>/**`. Keep the `http://localhost:3000/**` line.
+4. Click **Save URLs**.
+5. If your Vercel address differs from the `NEXT_PUBLIC_APP_URL` value, change that variable in
+   Vercel (**Settings** > **Environment Variables**). Then click **Redeploy**.
+
+The GitHub and Google apps need no change. Their callback URL points to Supabase.
+
+### 17e. Create the Razorpay webhook
+
+1. Open https://dashboard.razorpay.com. Turn on **Test Mode**.
+2. Open **Settings** > **Webhooks** > **Add New Webhook**.
+3. Enter the URL `https://<your-vercel-address>/api/webhooks/razorpay`.
+4. Enter the same secret as `RAZORPAY_WEBHOOK_SECRET`.
+5. Select the event `payment.captured`. Click **Create Webhook**.
+
+### 17f. Test
+
+1. Open the live site. Click **Sign in with GitHub**. Make sure you reach `/ide`.
+2. Open the wallet. Buy the smallest pack with a Razorpay test card or test UPI ID.
+3. Make sure the balance goes up in the app and a row shows in the `transactions` table.
+
+## 18. Key rotation
 
 Do this only when you must change `ENCRYPTION_SECRET` (for example, after a leak).
 The script `scripts/rotate-keys.ts` decrypts each saved API key with the old secret.
@@ -434,7 +503,7 @@ Then it encrypts the key again with the new secret.
 5. Make sure the output shows `failed=0`.
 6. Remove the value of `ENCRYPTION_SECRET_OLD`.
 
-## 18. Troubleshooting
+## 19. Troubleshooting
 
 | Symptom | Cause | Fix |
 |---|---|---|
