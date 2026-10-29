@@ -80,20 +80,21 @@ export async function deductHold(userId: string, holdPaise: number): Promise<Bal
 }
 
 // Refunds the hold minus the actual cost and records an ai_usage transaction.
-// If the actual cost is above the hold, the extra amount is charged.
+// Platform absorbs any overage beyond the hold cap.
 export async function settleHold(
   userId: string,
   holdPaise: number,
   actualCostPaise: number
 ): Promise<void> {
-  const refund = holdPaise - actualCostPaise;
+  const cappedCost = Math.min(actualCostPaise, holdPaise);
+  const refund = holdPaise - cappedCost;
   const { newBalance } = await changeBalance(userId, refund, false);
 
   const supabase = createServiceRoleClient();
   const { error } = await supabase.from("transactions").insert({
     user_id: userId,
     type: "ai_usage",
-    amount_paise: -actualCostPaise,
+    amount_paise: -cappedCost,
     balance_after_paise: newBalance,
     description: "AI usage",
   });

@@ -150,11 +150,11 @@ describe('settleHold', () => {
     });
   });
 
-  test('charges the extra amount when actual cost exceeds the hold', async () => {
+  test('caps cost at hold amount when actual cost exceeds the hold', async () => {
     db.profiles[0].balance_paise = 900;
     await settleHold('user-1', 100, 130);
-    expect(db.profiles[0].balance_paise).toBe(870);
-    expect(db.transactions[0]).toMatchObject({ amount_paise: -130, balance_after_paise: 870 });
+    expect(db.profiles[0].balance_paise).toBe(900);
+    expect(db.transactions[0]).toMatchObject({ amount_paise: -100, balance_after_paise: 900 });
   });
 
   test('throws when the transaction insert fails', async () => {
