@@ -167,7 +167,8 @@ async function main() {
     maxTurns: input.maxTurns,
     permissionMode: MODE === "manual" ? "default" : MODE === "plan" ? "plan" : MODE === "auto" ? "bypassPermissions" : "acceptEdits",
     allowedTools: MODE === "edits" || MODE === "auto" ? READ_TOOLS.concat(["Edit", "Write"]) : READ_TOOLS,
-    disallowedTools: ["WebSearch", "WebFetch"],
+    // ListAgents and SendMessage would let the agent see and message other Claude sessions on the same machine.
+    disallowedTools: ["WebSearch", "WebFetch", "ListAgents", "SendMessage"],
     canUseTool: canUseTool,
     settingSources: ["project"],
     systemPrompt: { type: "preset", preset: "claude_code", append: APPEND },

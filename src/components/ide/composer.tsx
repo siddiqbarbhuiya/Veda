@@ -1,7 +1,9 @@
 "use client";
 
-import { useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
-import { ArrowUp, Clock, FileText, Plus, Square, SquareSlash, X } from "lucide-react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
+import { ArrowUp, Clock, FileText, Mic, Plus, Square, SquareSlash, X } from "lucide-react";
+import { appendSpoken, useSpeech } from "@/hooks/use-speech";
+import { cn } from "@/lib/cn";
 import type { Attachment } from "@/lib/attachments";
 import { ContextRing } from "./context-ring";
 import { MenuPopover, type MenuItem } from "./menu-popover";
@@ -76,6 +78,16 @@ export function Composer({
   const rootRef = useRef<HTMLDivElement>(null);
   const slashButtonRef = useRef<HTMLButtonElement>(null);
   const [slashOpen, setSlashOpen] = useState(false);
+  // Dictated text goes to the end of what is typed. `value` is read through a ref so a long dictation keeps all of it.
+  const valueRef = useRef(value);
+  useEffect(() => {
+    valueRef.current = value;
+  });
+  const speech = useSpeech((spoken) => {
+    const next = appendSpoken(valueRef.current, spoken);
+    valueRef.current = next;
+    onChange(next);
+  });
 
   // Grow with the text, up to about 7 lines.
   useLayoutEffect(() => {
@@ -141,6 +153,7 @@ export function Composer({
         </p>
       ) : null}
 
+      <div className="relative">
       <textarea
         ref={taRef}
         value={value}
@@ -166,8 +179,33 @@ export function Composer({
         placeholder={placeholder}
         title="Enter to send. Shift+Enter for a new line. Type / for commands."
         aria-label={ariaLabel}
-        className="block max-h-40 min-h-9 w-full resize-none bg-transparent px-3 py-2 text-ui leading-snug text-fg outline-none placeholder:text-fg-3"
+        className={cn(
+          "block max-h-40 min-h-9 w-full resize-none bg-transparent py-2 pl-3 text-ui leading-snug text-fg outline-none placeholder:text-fg-3",
+          speech.supported ? "pr-9" : "pr-3",
+        )}
       />
+      {speech.supported ? (
+        <button
+          type="button"
+          aria-label={speech.listening ? "Stop dictation" : "Dictate with the microphone"}
+          title={speech.listening ? "Stop dictation" : "Dictate with the microphone"}
+          aria-pressed={speech.listening}
+          onClick={speech.toggle}
+          className={cn(
+            iconButton,
+            "absolute right-1.5 top-1.5",
+            speech.listening ? "bg-danger-subtle text-danger hover:bg-danger-subtle hover:text-danger" : "",
+          )}
+        >
+          <Mic size={16} aria-hidden="true" className={speech.listening ? "animate-dot-pulse" : ""} />
+        </button>
+      ) : null}
+      </div>
+      {speech.error ? (
+        <p role="alert" className="border-t border-line px-3 py-1 text-caption text-danger">
+          {speech.error}
+        </p>
+      ) : null}
 
       <div className="flex items-center gap-0.5 border-t border-line px-1 py-1">
         <button type="button" aria-label="Attach files" title="Attach text or code files" onClick={() => fileRef.current?.click()} className={iconButton}>

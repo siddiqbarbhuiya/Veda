@@ -32,6 +32,12 @@ describe("runner mode mapping", () => {
   });
 });
 
+describe("runner tool limits", () => {
+  it("blocks the tools that reach other sessions on the machine", () => {
+    expect(RUNNER_SOURCE).toContain('"ListAgents", "SendMessage"');
+  });
+});
+
 describe("fake scenarios by mode", () => {
   const base = { runId: "f.r", project: "p", prompt: "hello", model: "m", newConversation: true, files: {}, maxTurns: 40, maxSeconds: 600 };
   const perms = (mode: "manual" | "edits" | "plan" | "auto") =>
