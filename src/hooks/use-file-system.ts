@@ -3,6 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { IndexedDBStore, type FileNode } from "@/lib/persistence/indexeddb";
 import { CloudStore } from "@/lib/persistence/cloud-store";
+import { clearBackup, newestSnapshot, readBackup, writeBackup } from "@/lib/persistence/backup";
 import { chooseSource, describeSync, type Snapshot } from "@/lib/persistence/sync";
 import { sanitizeTree, validateName } from "@/lib/files/validate-name";
 import { applyIncomingToTree, type Incoming } from "@/lib/files/runtime-sync";
@@ -11,6 +12,7 @@ import {
   attachRuntime,
   buildRuntimeTree,
   isRuntimePath,
+  projectDirs,
   runtimeRootOf,
   viewText,
   type RuntimeEntry,
@@ -232,8 +234,13 @@ export function useFileSystemState(userId: string | null, projectName: string = 
     store.warm();
     (async () => {
       const { remote, error: remoteError } = await readCloud(cloudRef, userId, projectName);
-      const saved = await store.loadWithMeta(userId, projectName);
+      const fromDisk = await store.loadWithMeta(userId, projectName);
       if (cancelled) return;
+      // A backup in localStorage is newer than IndexedDB when the page closed before IndexedDB finished writing.
+      const backup = readBackup(userId, projectName);
+      const saved = newestSnapshot(fromDisk, backup);
+      const usedBackup = backup !== null && saved === backup;
+      if (backup && !usedBackup) clearBackup(userId, projectName);
 
       const rawLocal = saved?.files ?? null;
       const cleanLocal = rawLocal ? sanitizeTree(rawLocal) : null;
@@ -252,7 +259,7 @@ export function useFileSystemState(userId: string | null, projectName: string = 
             ? local!.updatedAt || (choice.push || repaired ? Date.now() : 0)
             : 0;
       if (repaired) lastEditAt.current = Date.now();
-      dirty.current = repaired;
+      dirty.current = repaired || usedBackup;
       lastPushed.current = choice.push || repaired ? "" : JSON.stringify(initial);
       cloudReady.current = remoteError === null;
       if (remoteError) setStatus("off", remoteError, null);
@@ -278,6 +285,8 @@ export function useFileSystemState(userId: string | null, projectName: string = 
     dirty.current = false;
     const at = lastEditAt.current;
     await store.save(userId, projectName, filesRef.current, at);
+    // IndexedDB has these edits now, so the backup is not needed. A newer edit keeps its own backup.
+    if (lastEditAt.current === at) clearBackup(userId, projectName);
     channelRef.current?.postMessage({ tabId: tabId.current, updatedAt: at });
   }, [userId, projectName, store]);
 
@@ -411,7 +420,12 @@ export function useFileSystemState(userId: string | null, projectName: string = 
   // Flush when the page is hidden or closed. The IndexedDB write starts in the same tick.
   useEffect(() => {
     const flush = () => {
-      if (dirty.current) void saveAll();
+      if (!dirty.current) return;
+      // The page may close before the IndexedDB write ends. The backup write is synchronous.
+      if (userId && loadedRef.current && !noSave.current && !conflictRef.current && lastEditAt.current > 0) {
+        writeBackup(userId, projectName, filesRef.current, lastEditAt.current);
+      }
+      void saveAll();
     };
     const onVisibility = () => {
       if (document.visibilityState === "hidden") {
@@ -431,7 +445,7 @@ export function useFileSystemState(userId: string | null, projectName: string = 
       window.removeEventListener("pagehide", onHide);
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [saveAll, pushCloud]);
+  }, [userId, projectName, saveAll, pushCloud]);
 
   // Flush on unmount.
   const latest = useRef({ saveAll, pushCloud });
@@ -497,8 +511,8 @@ export function useFileSystemState(userId: string | null, projectName: string = 
   const refreshRuntime = useCallback(async () => {
     const rootList = await listRuntime("");
     if (rootList === null) return;
-    // node_modules can be in the project root or in a top-level project folder.
-    const folders = ["", ...filesRef.current.filter((n) => n.type === "directory").map((n) => n.path)];
+    // node_modules can be in the project root or in a project folder up to two levels deep.
+    const folders = ["", ...projectDirs(filesRef.current, 2)];
     const found: string[] = [];
     for (const f of folders) {
       const list = f === "" ? rootList : await listRuntime(f);

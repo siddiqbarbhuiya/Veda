@@ -1,4 +1,5 @@
 import type { FileNode } from "@/lib/persistence/indexeddb";
+import { projectDirs } from "@/lib/files/runtime-view";
 
 export type PackageCheck = { ok: true; value: string } | { ok: false; reason: string };
 
@@ -18,14 +19,23 @@ export function validatePackageSpec(input: string): PackageCheck {
   return { ok: true, value };
 }
 
-/** Folders that hold a `package.json`: "" for the project root, then top-level folders. */
+/** Folders that hold a `package.json`: "" for the project root, then folders up to two levels deep (a parent comes before its children). */
 export function packageFolders(files: FileNode[]): string[] {
   const out: string[] = [];
   if (files.some((n) => n.type === "file" && n.path === "package.json")) out.push("");
-  for (const n of files) {
-    if (n.type === "directory" && (n.children ?? []).some((c) => c.type === "file" && c.name === "package.json")) {
-      out.push(n.path);
-    }
+  const find = (path: string): FileNode[] => {
+    const walk = (nodes: FileNode[]): FileNode[] | null => {
+      for (const n of nodes) {
+        if (n.path === path) return n.children ?? [];
+        const inner = n.children ? walk(n.children) : null;
+        if (inner) return inner;
+      }
+      return null;
+    };
+    return walk(files) ?? [];
+  };
+  for (const dir of projectDirs(files, 2)) {
+    if (find(dir).some((c) => c.type === "file" && c.name === "package.json")) out.push(dir);
   }
   return out;
 }

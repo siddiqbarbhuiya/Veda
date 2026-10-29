@@ -5,13 +5,14 @@ import type { ReactNode } from "react";
 import { ExternalLink, Globe, RotateCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useRunningServers } from "@/hooks/use-webcontainer";
+import { preferredServer } from "@/lib/templates/preview";
 
 /** The live preview of a web server that runs in the Node.js runtime (Vite, Express, and so on). */
 export default function PreviewPanel({ tabs }: { tabs: ReactNode }) {
   const servers = useRunningServers();
   const [picked, setPicked] = useState<number | null>(null);
   const [nonce, setNonce] = useState(0);
-  const server = servers.find((s) => s.port === picked) ?? servers[servers.length - 1] ?? null;
+  const server = servers.find((s) => s.port === picked) ?? preferredServer(servers);
 
   return (
     <div id="preview-panel" data-panel="preview" className="flex h-full min-h-0 w-full flex-col bg-panel">

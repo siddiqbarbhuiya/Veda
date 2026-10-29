@@ -6,6 +6,7 @@ import {
   buildRuntimeTree,
   isRuntimePath,
   packageJsonHasDeps,
+  projectDirs,
   runtimeRootOf,
   viewText,
 } from "../runtime-view";
@@ -104,6 +105,19 @@ describe("attachRuntime", () => {
   it("skips a root whose folder does not exist in the project", () => {
     const roots = buildRuntimeTree({ "gone/node_modules": [] }, {});
     expect(attachRuntime([dir("app")], roots).map((n) => n.path)).toEqual(["app"]);
+  });
+});
+
+describe("projectDirs", () => {
+  it("lists folders in tree order up to the depth, without read-only or node_modules folders", () => {
+    const tree = [
+      dir("a", [dir("a/b", [dir("a/b/c")]), dir("a/node_modules")]),
+      { ...dir("ro"), readOnly: true },
+      dir("z"),
+    ];
+    expect(projectDirs(tree, 2)).toEqual(["a", "a/b", "z"]);
+    expect(projectDirs(tree, 1)).toEqual(["a", "z"]);
+    expect(projectDirs(tree, 3)).toEqual(["a", "a/b", "a/b/c", "z"]);
   });
 });
 

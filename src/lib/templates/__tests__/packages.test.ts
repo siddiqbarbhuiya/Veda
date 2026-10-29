@@ -46,6 +46,16 @@ describe("packageFolders", () => {
     const tree = [file("package.json"), dir("app", [file("app/package.json")]), dir("docs", [file("docs/a.md")])];
     expect(packageFolders(tree)).toEqual(["", "app"]);
   });
+  it("finds a package.json two levels deep, after its parent", () => {
+    const tree = [
+      dir("app", [file("app/package.json"), dir("app/backend", [file("app/backend/package.json")]), dir("app/docs", [file("app/docs/a.md")])]),
+    ];
+    expect(packageFolders(tree)).toEqual(["app", "app/backend"]);
+  });
+  it("does not look three levels deep", () => {
+    const tree = [dir("a", [dir("a/b", [dir("a/b/c", [file("a/b/c/package.json")])])])];
+    expect(packageFolders(tree)).toEqual([]);
+  });
   it("is empty when no package.json exists", () => {
     expect(packageFolders([file("index.js")])).toEqual([]);
   });

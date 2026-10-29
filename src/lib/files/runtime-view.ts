@@ -12,6 +12,20 @@ export const MAX_VIEW_BYTES = 1024 * 1024;
 
 export type RuntimeEntry = { name: string; isDir: boolean };
 
+/** Project folders up to `maxDepth` levels deep (1 = top level), in tree order. Read-only nodes are skipped. */
+export function projectDirs(files: FileNode[], maxDepth: number): string[] {
+  const out: string[] = [];
+  const walk = (nodes: FileNode[], depth: number) => {
+    for (const n of nodes) {
+      if (n.type !== "directory" || n.readOnly || n.name === RUNTIME_DIR) continue;
+      out.push(n.path);
+      if (depth < maxDepth) walk(n.children ?? [], depth + 1);
+    }
+  };
+  walk(files, 1);
+  return out;
+}
+
 /** True for `node_modules` and everything inside a `node_modules` folder, at any depth. */
 export function isRuntimePath(path: string): boolean {
   return path.split("/").includes(RUNTIME_DIR);
