@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import type { Terminal } from "@xterm/xterm";
 import type { FileNode } from "@/lib/persistence/indexeddb";
 import { flattenTree, trimPyTraceback } from "./run-helpers";
+import { applyIncomingToMap, incomingFromScan, scanFs, type FsAdapter, type Incoming } from "@/lib/files/runtime-sync";
 
 // Pinned to the version in node_modules/pyodide/package.json. Pyodide is NOT bundled:
 // Turbopack cannot bundle its Node-only dynamic code, so a script tag loads it from the CDN.
@@ -28,6 +29,10 @@ type PyodideLike = {
     writeFile(path: string, data: string): void;
     unlink(path: string): void;
     chdir(path: string): void;
+    readdir(path: string): string[];
+    stat(path: string): { mode: number };
+    isDir(mode: number): boolean;
+    readFile(path: string, options: { encoding: "utf8" }): string;
   };
 };
 
@@ -41,6 +46,8 @@ let scriptPromise: Promise<void> | null = null;
 let loadPromise: Promise<PyodideLike> | null = null;
 let attachedTerm: Terminal | null = null;
 let mirrored = new Set<string>();
+// What the editor and Python agreed on at the last copy, in `flattenTree` keys. Null before the first run.
+let synced: Map<string, string> | null = null;
 
 function injectScript(): Promise<void> {
   if (typeof window !== "undefined" && window.loadPyodide) return Promise.resolve();
@@ -106,7 +113,31 @@ function mirrorFiles(py: PyodideLike, files: FileNode[]) {
     }
   }
   mirrored = next;
+  synced = flattenTree(files);
   py.FS.chdir(HOME);
+}
+
+/** The Python file system under HOME as relative keys. */
+function pyAdapter(py: PyodideLike): FsAdapter {
+  const abs = (key: string) => (key ? `${HOME}/${key}` : HOME);
+  return {
+    list(dir) {
+      return py.FS.readdir(abs(dir))
+        .filter((name) => name !== "." && name !== "..")
+        .map((name) => ({ name, isDir: py.FS.isDir(py.FS.stat(`${abs(dir)}/${name}`).mode) }));
+    },
+    read: (path) => py.FS.readFile(abs(path), { encoding: "utf8" }),
+  };
+}
+
+/** Read what a script changed in the Python file system. The caller must apply it to the editor. */
+async function pullFromPython(getFiles: () => FileNode[]): Promise<Incoming | null> {
+  if (!loadPromise || synced === null) return null;
+  const py = await loadPromise;
+  const scan = await scanFs(pyAdapter(py));
+  const ops = incomingFromScan(synced, scan, flattenTree(getFiles()));
+  synced = applyIncomingToMap(synced, ops);
+  return ops;
 }
 
 function stream() {
@@ -152,5 +183,5 @@ function attachTerminal(t: Terminal | null) {
 }
 
 export function usePyodide() {
-  return useMemo(() => ({ load, runCode, attachTerminal }), []);
+  return useMemo(() => ({ load, runCode, attachTerminal, pullFromPython }), []);
 }

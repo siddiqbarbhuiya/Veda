@@ -5,6 +5,14 @@ import type { IDisposable, Terminal } from "@xterm/xterm";
 import type { WebContainer, FileSystemTree, WebContainerProcess } from "@webcontainer/api";
 import type { FileNode } from "@/lib/persistence/indexeddb";
 import { diffSync, flattenTree } from "./run-helpers";
+import {
+  applyIncomingToMap,
+  incomingFromScan,
+  scanFs,
+  shouldIgnore,
+  type FsAdapter,
+  type Incoming,
+} from "@/lib/files/runtime-sync";
 
 export const ISOLATION_MESSAGE =
   "Cross-origin isolation is off. Reload this page (open the IDE from the address bar or press F5).";
@@ -154,6 +162,77 @@ function writeFiles(files: FileNode[]): Promise<void> {
   return next;
 }
 
+/** The WebContainer file system as relative keys. */
+function wcAdapter(wc: WebContainer): FsAdapter {
+  const abs = (key: string) => `/${key}`;
+  return {
+    async list(dir) {
+      const list = await wc.fs.readdir(abs(dir), { withFileTypes: true });
+      return list.map((ent) => ({ name: ent.name, isDir: ent.isDirectory() }));
+    },
+    read: (path) => wc.fs.readFile(abs(path), "utf-8"),
+  };
+}
+
+async function doPull(getFiles: () => FileNode[]): Promise<Incoming | null> {
+  if (synced === null || !bootPromise) return null;
+  const wc = await boot();
+  const scan = await scanFs(wcAdapter(wc));
+  const ops = incomingFromScan(synced, scan, flattenTree(getFiles()));
+  synced = applyIncomingToMap(synced, ops);
+  return ops;
+}
+
+/** Read the runtime and return what the terminal or a script changed. The caller must apply it to the editor. */
+function pullFromRuntime(getFiles: () => FileNode[]): Promise<Incoming | null> {
+  const next = syncChain.then(() => doPull(getFiles), () => doPull(getFiles));
+  syncChain = next;
+  return next;
+}
+
+const changeListeners = new Set<() => void>();
+let watcher: { close(): void } | null = null;
+let notifyTimer: ReturnType<typeof setTimeout> | null = null;
+let notifyFirstAt = 0;
+const NOTIFY_QUIET_MS = 500;
+const NOTIFY_MAX_MS = 3000;
+
+function scheduleNotify() {
+  const now = Date.now();
+  if (notifyTimer === null) notifyFirstAt = now;
+  else clearTimeout(notifyTimer);
+  const wait = Math.max(0, Math.min(NOTIFY_QUIET_MS, notifyFirstAt + NOTIFY_MAX_MS - now));
+  notifyTimer = setTimeout(() => {
+    notifyTimer = null;
+    changeListeners.forEach((cb) => cb());
+  }, wait);
+}
+
+/** Watch the runtime file system once. Change events are grouped, then each listener runs. */
+async function ensureWatcher(): Promise<void> {
+  if (watcher) return;
+  const wc = await boot();
+  try {
+    watcher = wc.fs.watch("/", { recursive: true }, (_event, filename) => {
+      const name = typeof filename === "string" ? filename : new TextDecoder().decode(filename ?? new Uint8Array());
+      if (name && shouldIgnore(name)) return;
+      scheduleNotify();
+    });
+  } catch {
+    // No watcher: the sync still runs after each Run command.
+    watcher = null;
+  }
+}
+
+/** Run `cb` after the runtime files changed. Returns the function that removes the listener. */
+function onRuntimeChange(cb: () => void): () => void {
+  changeListeners.add(cb);
+  void ensureWatcher();
+  return () => {
+    changeListeners.delete(cb);
+  };
+}
+
 async function runCommand(cmd: string, args: string[] = []): Promise<RunningCommand> {
   const wc = await boot();
   const proc = await wc.spawn(cmd, args);
@@ -246,7 +325,16 @@ function setShellActive(active: boolean) {
 export function useWebContainer() {
   // The functions live at module level, so the returned object never changes.
   return useMemo(
-    () => ({ boot, writeFiles, runCommand, startShell, attachTerminal, setShellActive }),
+    () => ({
+      boot,
+      writeFiles,
+      pullFromRuntime,
+      onRuntimeChange,
+      runCommand,
+      startShell,
+      attachTerminal,
+      setShellActive,
+    }),
     []
   );
 }

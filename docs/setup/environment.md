@@ -543,7 +543,8 @@ The GitHub and Google apps need no change. Their callback URL points to Supabase
 - Files: names are checked, the tree keeps its state, and the project saves to IndexedDB and the cloud (newest edit wins).
 - IDE: the Run button, shortcuts, palette, terminal, chat error messages and the Add Credits link work as one set.
 - Site: new `error`, `not-found`, `robots`, `sitemap`, `manifest` and icon files, and the legal pages.
-- Known gaps: runtime-to-editor file sync, a Python worker, IndexedDB `blocked` handling, the `middleware` to `proxy` rename, and a WebContainer API commercial licence.
+- Terminal sync (Phase 0 of `docs/product/editor-prd.md`): files and folders that a terminal command, a Node script or a Python script creates, changes or deletes now show in the file tree and in the cloud copy. `node_modules`, `.git`, `dist` and other generated folders are not copied. Binary files and files over 512 KB are not copied. Editor changes reach the terminal after 0.4 s without a Run.
+- Known gaps: a Python worker, IndexedDB `blocked` handling, the `middleware` to `proxy` rename, and a WebContainer API commercial licence.
 
 ## 18. Key rotation
 

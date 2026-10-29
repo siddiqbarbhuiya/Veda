@@ -26,7 +26,7 @@ function dim(term: Terminal, text: string) {
 }
 
 export default function TerminalPanel() {
-  const { files, activeFile } = useFileSystem();
+  const { files, activeFile, loaded, applyRuntimeChanges } = useFileSystem();
   const { runtime, setRuntime } = useRuntime();
   const wc = useWebContainer();
   const py = usePyodide();
@@ -42,10 +42,22 @@ export default function TerminalPanel() {
   const [bootNonce, setBootNonce] = useState(0);
 
   // The latest values for stable callbacks.
-  const latest = useRef({ files, activeFile, runtime });
+  const latest = useRef({ files, activeFile, runtime, applyRuntimeChanges });
   useEffect(() => {
-    latest.current = { files, activeFile, runtime };
+    latest.current = { files, activeFile, runtime, applyRuntimeChanges };
   });
+  // True after the Node runtime booted and got its first copy of the project.
+  const nodeReady = useRef(false);
+
+  /** Copy what the terminal or a script changed in the runtime into the editor. */
+  const pullRuntime = useCallback(async () => {
+    try {
+      const ops = await wc.pullFromRuntime(() => latest.current.files);
+      if (ops) latest.current.applyRuntimeChanges(ops);
+    } catch {
+      // The runtime is not ready. The next change event tries again.
+    }
+  }, [wc]);
 
   const setBusyFor = useCallback((kind: RunKind, label: string | null) => {
     busyRef.current = { ...busyRef.current, [kind]: label };
@@ -116,6 +128,7 @@ export default function TerminalPanel() {
       if (busyRef.current.node === null) setBusyFor("node", BOOT_LABEL);
       try {
         await wc.writeFiles(latest.current.files);
+        nodeReady.current = true;
         if (cancelled || !termRef.current) return;
         await wc.startShell(termRef.current);
       } catch (e) {
@@ -134,6 +147,21 @@ export default function TerminalPanel() {
       cancelled = true;
     };
   }, [runtime, termReady, bootNonce, wc, setBusyFor]);
+
+  // Terminal -> editor: a folder or file that a command made shows in the tree.
+  useEffect(() => {
+    if (!termReady) return;
+    return wc.onRuntimeChange(() => void pullRuntime());
+  }, [termReady, wc, pullRuntime]);
+
+  // Editor -> terminal: a change in the tree reaches the runtime without a Run.
+  useEffect(() => {
+    if (!loaded || runtime !== "node" || !nodeReady.current) return;
+    const t = setTimeout(() => {
+      wc.writeFiles(latest.current.files).catch(() => undefined);
+    }, 400);
+    return () => clearTimeout(t);
+  }, [files, loaded, runtime, wc]);
 
   const run = useCallback(async () => {
     const term = termRef.current;
@@ -167,6 +195,7 @@ export default function TerminalPanel() {
         procRef.current = cmd;
         const code = await cmd.exit;
         dim(term, `exited with code ${code}`);
+        await pullRuntime();
       } else {
         setBusyFor("python", PY_LOADING_LABEL);
         await py.load();
@@ -174,6 +203,8 @@ export default function TerminalPanel() {
         dim(term, "Python runs in the page: infinite loops cannot be stopped; reload if it freezes.");
         dim(term, `>>> ${file.path}`);
         const result = await py.runCode(file.content ?? "", projectFiles);
+        const pyOps = await py.pullFromPython(() => latest.current.files).catch(() => null);
+        if (pyOps) latest.current.applyRuntimeChanges(pyOps);
         if (result.ok) {
           dim(term, "exited with code 0");
         } else {
@@ -190,7 +221,7 @@ export default function TerminalPanel() {
       procRef.current = null;
       setBusyFor(kind, null);
     }
-  }, [wc, py, setRuntime, setBusyFor]);
+  }, [wc, py, setRuntime, setBusyFor, pullRuntime]);
 
   const stop = useCallback(() => {
     procRef.current?.kill();

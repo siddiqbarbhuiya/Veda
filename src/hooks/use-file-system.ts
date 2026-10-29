@@ -5,6 +5,7 @@ import { IndexedDBStore, type FileNode } from "@/lib/persistence/indexeddb";
 import { CloudStore } from "@/lib/persistence/cloud-store";
 import { chooseSource, describeSync, type Snapshot } from "@/lib/persistence/sync";
 import { sanitizeTree, validateName } from "@/lib/files/validate-name";
+import { applyIncomingToTree, type Incoming } from "@/lib/files/runtime-sync";
 import { createBrowserClient } from "@/lib/supabase/client";
 
 export type { FileNode };
@@ -484,6 +485,18 @@ export function useFileSystemState(userId: string | null, projectName: string = 
     setFiles((prev) => setContentAt(prev, path, content));
   }, [edited]);
 
+  /** Apply what a runtime (the terminal or a script) changed. Tabs of removed files close. */
+  const applyRuntimeChanges = useCallback((ops: Incoming) => {
+    if (ops.upsert.length === 0 && ops.remove.length === 0) return;
+    edited();
+    setFiles((prev) => applyIncomingToTree(prev, ops));
+    const removedDirs = ops.remove.filter((k) => k.endsWith("/")).map((k) => k.slice(0, -1));
+    const removedFiles = new Set(ops.remove.filter((k) => !k.endsWith("/")));
+    setNav((n) =>
+      removeFromNav(n, (p) => removedFiles.has(p) || removedDirs.some((d) => p === d || p.startsWith(d + "/")))
+    );
+  }, [edited]);
+
   const activePath = nav.active;
   const activeFile = activePath ? findNode(files, activePath) : null;
 
@@ -498,6 +511,7 @@ export function useFileSystemState(userId: string | null, projectName: string = 
     deleteFile,
     renameNode,
     updateFileContent,
+    applyRuntimeChanges,
     saveAll,
     flushNow,
     clearLocal,

@@ -373,6 +373,12 @@ body:has(dialog.veda-dialog[open]) {
     animation: none;
     display: none;
   }
+
+  /* Show the finished code instead of its last (hidden) keyframe. */
+  .launch-code-line {
+    animation: none !important;
+    opacity: 1;
+  }
 }
 
 @media print {
@@ -405,5 +411,114 @@ body:has(dialog.veda-dialog[open]) {
   a[href^="http"]::after {
     content: " (" attr(href) ")";
     font-size: 0.85em;
+  }
+}
+
+/* Launch banner: 3D layers. Only transform and opacity animate. */
+@layer components {
+  .launch-stage {
+    position: relative;
+    height: 11rem;
+    min-height: 11rem;
+    perspective: 900px;
+    overflow: hidden;
+    background: var(--accent-subtle);
+  }
+
+  .launch-glow {
+    position: absolute;
+    inset: auto 0 -40% 0;
+    height: 80%;
+    background: radial-gradient(closest-side, var(--accent) 0%, transparent 100%);
+    opacity: 0.2;
+  }
+
+  .launch-scene {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 13rem;
+    height: 7.5rem;
+    margin: -3.75rem 0 0 -6.5rem;
+    transform-style: preserve-3d;
+    transform: rotateX(12deg) rotateY(-20deg); /* static pose for reduced motion */
+    animation: launch-spin 8s var(--ease-in-out-expo) infinite alternate;
+  }
+
+  .launch-layer {
+    position: absolute;
+    inset: 0;
+    animation: launch-float 4s var(--ease-in-out-expo) infinite alternate;
+  }
+
+  .launch-layer-back {
+    transform: translate3d(-3.5rem, -0.5rem, -60px);
+  }
+  .launch-layer-mid {
+    transform: translate3d(0, 0.5rem, 0);
+    animation-delay: -1.3s;
+  }
+  .launch-layer-front {
+    transform: translate3d(3.5rem, 1.5rem, 60px);
+    animation-delay: -2.6s;
+  }
+
+  .launch-mark {
+    position: absolute;
+    left: 50%;
+    top: -1.75rem;
+    margin-left: -1.75rem;
+    transform: translateZ(110px);
+    animation: launch-float 3s var(--ease-in-out-expo) infinite alternate;
+    filter: drop-shadow(0 8px 16px color-mix(in srgb, var(--accent) 45%, transparent));
+  }
+
+  @media (min-width: 640px) {
+    .launch-stage {
+      height: 14rem;
+    }
+    .launch-scene {
+      scale: 1.25;
+    }
+  }
+
+  .launch-code-line {
+    animation: launch-line 8s var(--ease-out-expo) infinite;
+    animation-delay: calc(var(--i, 0) * 0.9s);
+    animation-fill-mode: backwards;
+  }
+
+  @keyframes launch-line {
+    0% {
+      opacity: 0;
+      transform: translateX(-8px);
+    }
+    10%,
+    82% {
+      opacity: 1;
+      transform: translateX(0);
+    }
+    94%,
+    100% {
+      opacity: 0;
+      transform: translateX(0);
+    }
+  }
+
+  @keyframes launch-spin {
+    from {
+      transform: rotateX(14deg) rotateY(-26deg);
+    }
+    to {
+      transform: rotateX(8deg) rotateY(26deg);
+    }
+  }
+  @keyframes launch-float {
+    from {
+      translate: 0 -4px;
+    }
+    to {
+      translate: 0 6px;
+    }
   }
 }

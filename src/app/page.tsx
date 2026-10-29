@@ -7,6 +7,8 @@ import { HowItWorks } from "@/components/marketing/how-it-works";
 import { Pricing } from "@/components/marketing/pricing";
 import { Faq } from "@/components/marketing/faq";
 import { FinalCta, Footer } from "@/components/marketing/footer";
+import { LaunchStrip } from "@/components/marketing/launch-strip";
+import { LaunchBanner } from "@/components/marketing/launch-banner";
 
 export const metadata: Metadata = {
   alternates: { canonical: "/" },
@@ -39,8 +41,10 @@ export default function Home() {
         dangerouslySetInnerHTML={{ __html: JSON.stringify(JSON_LD).replace(/</g, "\\u003c") }}
       />
       <SkipLink />
+      <LaunchBanner />
       <Nav />
       <main id="main" tabIndex={-1} className="flex-1 focus:outline-none">
+        <LaunchStrip />
         <Hero />
         <Providers />
         <Features />
