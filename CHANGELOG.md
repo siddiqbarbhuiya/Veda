@@ -16,6 +16,10 @@
 - IDE panels talk through window events (`src/components/ide/ide-events.ts`).
 - Small screens show a notice instead of a broken IDE.
 
+### Export
+- Export project as ZIP: toolbar button and command palette. Includes editor files, files made by the Node.js runtime and,
+  as an option, `node_modules`. Library: `src/lib/export/zip.ts` (tested). New package: `fflate`.
+
 ### Fixes
 - The IDE settings link now goes to `/dashboard`. It pointed to a page that does not exist.
 - Top-up dialog uses a native `<dialog>`: focus trap, Escape key and focus restore.

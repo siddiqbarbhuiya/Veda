@@ -17,6 +17,16 @@ function toTree(nodes: FileNode[]): FileSystemTree {
   return tree;
 }
 
+/** The running WebContainer, or null when it never booted. This never starts one. */
+export async function peekWebContainer(): Promise<WebContainer | null> {
+  if (!bootPromise) return null;
+  try {
+    return await bootPromise;
+  } catch {
+    return null;
+  }
+}
+
 export function useWebContainer() {
   // The terminal panel sets this ref when the xterm instance exists.
   const terminal = useRef<Terminal | null>(null);

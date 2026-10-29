@@ -57,6 +57,21 @@ const cost = calculateCostPaise(inputTokens, outputTokens, rate);
 
 See [docs/setup/environment.md](docs/setup/environment.md) for the full setup guide.
 
+## How the IDE runs your code
+
+| Part | Where it happens |
+|---|---|
+| Editor | Monaco, in the browser tab. |
+| Node.js and `npm install` | WebContainers. Node.js runs inside the browser tab (WebAssembly). It uses the student's own CPU and memory. |
+| Python | Pyodide, in the browser tab. |
+| Terminal | `jsh`, the WebContainers JavaScript shell. It is not bash. There is no `apt`, no native program and no Docker. |
+| Project files | **Only in the browser** (IndexedDB), saved every 5 seconds. Nothing goes to a server. |
+
+Because the files are only in the browser, a student who clears site data or changes device loses the project.
+Use **Export project as ZIP** (the download icon in the toolbar, or Ctrl+K and "Export project as ZIP") to keep a backup.
+The ZIP has the editor files, the files that your code made in the Node.js runtime, and optionally `node_modules`.
+Python packages installed in the browser are not included.
+
 ## Knowledge Graph
 
 The graph below shows the codebase structure — modules, components, and their relationships. It updates automatically on each push to `main`.

@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import { Command } from "cmdk";
 import {
   CreditCard,
+  Download,
   FilePlus,
   FileText,
   Keyboard,
@@ -33,6 +34,7 @@ export type PaletteActions = {
   toggleTheme: () => void;
   goDashboard: () => void;
   addCredits: () => void;
+  exportZip: () => void;
   showShortcuts: () => void;
   signOut: () => void;
 };
@@ -78,6 +80,7 @@ export function CommandPalette({
   const commands: Cmd[] = [
     { id: "run", label: "Run code", icon: <Play size={16} />, keys: ["Ctrl", "Enter"], run: actions.run },
     { id: "new", label: "New file", icon: <FilePlus size={16} />, keys: ["Alt", "N"], run: actions.newFile },
+    { id: "export", label: "Export project as ZIP", icon: <Download size={16} />, run: actions.exportZip },
     { id: "sidebar", label: "Toggle sidebar", icon: <PanelLeft size={16} />, keys: ["Ctrl", "B"], run: actions.toggleSidebar },
     { id: "terminal", label: "Toggle terminal", icon: <PanelBottom size={16} />, keys: ["Ctrl", "J"], run: actions.toggleTerminal },
     { id: "chat", label: "Toggle chat", icon: <MessageSquare size={16} />, keys: ["Ctrl", "Shift", "L"], run: actions.toggleChat },

@@ -19,6 +19,7 @@ import { ActivityBar } from "./activity-bar";
 import { StatusBar } from "./status-bar";
 import { CommandPalette, type PaletteActions } from "./command-palette";
 import { ShortcutsDialog } from "./shortcuts-dialog";
+import { ExportDialog } from "./export-dialog";
 import { SmallScreenNotice } from "./small-screen-notice";
 import { ResizeHandle } from "./resize-handle";
 import { RuntimeProvider, useRuntime } from "./runtime-context";
@@ -75,6 +76,7 @@ function Shell({ tablet }: { tablet: boolean }) {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [topupOpen, setTopupOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
   const [open, setOpen] = useState({ sidebar: !tablet, chat: !tablet, terminal: true });
 
   const sidebarRef = usePanelRef();
@@ -163,6 +165,7 @@ function Shell({ tablet }: { tablet: boolean }) {
     toggleTheme: () => setTheme(theme === "dark" ? "light" : "dark"),
     goDashboard: () => router.push("/dashboard"),
     addCredits: () => setTopupOpen(true),
+    exportZip: () => setExportOpen(true),
     showShortcuts: openShortcuts,
     signOut,
   };
@@ -174,6 +177,7 @@ function Shell({ tablet }: { tablet: boolean }) {
       <Toolbar
         projectName={DEFAULT_PROJECT_NAME}
         onOpenPalette={openPalette}
+        onOpenExport={() => setExportOpen(true)}
         topupOpen={topupOpen}
         onTopupOpenChange={setTopupOpen}
       />
@@ -268,6 +272,7 @@ function Shell({ tablet }: { tablet: boolean }) {
       <StatusBar onOpenShortcuts={openShortcuts} />
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} actions={actions} />
       <ShortcutsDialog open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
+      <ExportDialog open={exportOpen} onClose={() => setExportOpen(false)} />
     </div>
   );
 }

@@ -2,7 +2,18 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { AlertTriangle, ChevronDown, ChevronRight, Loader2, Play, Plus, Search, Settings, Wallet } from "lucide-react";
+import {
+  AlertTriangle,
+  ChevronDown,
+  ChevronRight,
+  Download,
+  Loader2,
+  Play,
+  Plus,
+  Search,
+  Settings,
+  Wallet,
+} from "lucide-react";
 import TopupModal from "@/components/payments/topup-modal";
 import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
@@ -21,11 +32,13 @@ const LOW_BALANCE_PAISE = 1000;
 export default function Toolbar({
   projectName,
   onOpenPalette,
+  onOpenExport,
   topupOpen,
   onTopupOpenChange,
 }: {
   projectName: string;
   onOpenPalette: () => void;
+  onOpenExport: () => void;
   topupOpen: boolean;
   onTopupOpenChange: (open: boolean) => void;
 }) {
@@ -145,6 +158,15 @@ export default function Toolbar({
       </Button>
       <TopupModal open={topupOpen} onClose={() => onTopupOpenChange(false)} onSuccess={loadProfile} />
 
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        aria-label="Export project as ZIP"
+        title="Export project as ZIP"
+        onClick={onOpenExport}
+      >
+        <Download size={16} aria-hidden="true" />
+      </Button>
       <ThemeToggle className="size-7!" />
       <Link
         href="/dashboard"
