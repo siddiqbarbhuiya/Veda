@@ -454,6 +454,10 @@ claude mcp add --scope project playwright -- npx -y @playwright/mcp@latest
 | GitHub Client ID | `https://github.com/settings/developers` > your app |
 | GitHub Client Secret | GitHub never shows it again. Click **Generate a new client secret**. Then update Supabase and `.env.local`. |
 | `ENCRYPTION_SECRET` | Only your backup. If lost, stored user API keys are lost. |
+| Vercel Project ID (`VERCEL_PROJECT_ID`) | `https://vercel.com/<team>/<project>/settings` > **Project ID** |
+| Vercel Team ID (`VERCEL_ORG_ID`) | `https://vercel.com/<team>/~/settings` > **Team ID** |
+| Vercel token (`VERCEL_TOKEN`) | Not needed for the dashboard deploy. For the CLI or CI, make one at `https://vercel.com/account/tokens`. Vercel shows it one time only. |
+| Vercel environment variables | `https://vercel.com/<team>/<project>/settings/environment-variables`. They are copies of `.env.local`. Vercel does not show secret values again. |
 | Razorpay Key ID | Razorpay dashboard > **Get Test API Keys** (test) or **Settings** > **API Keys** (live) |
 | Razorpay Key Secret | Razorpay never shows it again. Click **Regenerate**. Then update `.env.local`. The old key stops working. |
 | Google Client ID | `https://console.cloud.google.com/auth/clients?project=<google-project-id>` > your client |
