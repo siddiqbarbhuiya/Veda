@@ -74,7 +74,7 @@ export default function TopupModal({
         amount: pack.amountPaise,
         currency: "INR",
         order_id: data.order_id,
-        name: "IndicSandbox",
+        name: "Veda",
         handler: () => {
           setMessage({ kind: "ok", text: "Payment received. Credits will appear shortly." });
           onSuccess?.();

@@ -41,7 +41,7 @@ export default function Toolbar({ projectName }: { projectName: string }) {
 
   return (
     <header id="toolbar" className="flex h-10 items-center gap-3 border-b border-neutral-800 bg-neutral-900 px-3 text-sm">
-      <span className="font-semibold">IndicSandbox</span>
+      <span className="font-semibold">Veda</span>
       <span className="text-neutral-400">{projectName}</span>
       <select
         aria-label="Runtime"

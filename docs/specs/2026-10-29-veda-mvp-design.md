@@ -1,4 +1,4 @@
-# IndicSandbox MVP v1.0 — Design Specification
+# Veda MVP v1.0 — Design Specification
 
 **Document Version:** 1.1
 **Date:** 2026-10-29
@@ -15,7 +15,7 @@ Indian engineering students cannot use global AI playgrounds (Replit, StackBlitz
 - High currency conversion fees on dollar-denominated billing.
 - No safety net against runaway token costs from infinite loops.
 
-IndicSandbox gives students a zero-infrastructure-cost, browser-executed coding workspace. Students link their own AI API keys, pay via UPI micro-transactions (starting at ₹29), and a server-side circuit breaker prevents runaway billing.
+Veda gives students a zero-infrastructure-cost, browser-executed coding workspace. Students link their own AI API keys, pay via UPI micro-transactions (starting at ₹29), and a server-side circuit breaker prevents runaway billing.
 
 ---
 
@@ -30,7 +30,7 @@ IndicSandbox gives students a zero-infrastructure-cost, browser-executed coding 
 ## 3. Non-Goals
 
 - **No collaborative editing.** MVP is single-user per workspace. No real-time multiplayer.
-- **No custom domain per user.** All users share the same IndicSandbox domain.
+- **No custom domain per user.** All users share the same Veda domain.
 - **No mobile-optimized IDE.** The VS Code-style layout targets desktop/laptop screens (≥1024px).
 - **No self-hosted option.** MVP is SaaS only.
 
@@ -472,7 +472,7 @@ These rates are approximate conversions from USD pricing at ₹84/USD. An admin 
 ## 13. Project Directory Structure
 
 ```
-indicsandbox/
+veda/
 ├── docs/
 │   ├── specs/                        # Design specifications
 │   ├── adr/                          # Architecture Decision Records

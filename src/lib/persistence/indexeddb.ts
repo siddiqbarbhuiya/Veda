@@ -8,7 +8,7 @@ export type FileNode = {
   children?: FileNode[];
 };
 
-const DB_NAME = "indicsandbox";
+const DB_NAME = "veda";
 const STORE_NAME = "projects";
 
 export class IndexedDBStore {

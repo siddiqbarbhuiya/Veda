@@ -4,7 +4,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   return (
     <div className="min-h-screen bg-neutral-950 text-neutral-200">
       <nav className="flex h-12 items-center gap-5 border-b border-neutral-800 bg-neutral-900 px-4 text-sm">
-        <span className="font-semibold">IndicSandbox</span>
+        <span className="font-semibold">Veda</span>
         <Link href="/dashboard" className="hover:text-white">Dashboard</Link>
         <Link href="/ide" className="hover:text-white">IDE</Link>
       </nav>

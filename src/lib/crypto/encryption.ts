@@ -3,9 +3,13 @@ import crypto from 'node:crypto';
 const ALGORITHM = 'aes-256-gcm';
 const IV_BYTES = 12;
 
+/** Result of AES-256-GCM encryption. All fields are base64-encoded. */
 export type EncryptedPayload = {
+  /** Base64-encoded ciphertext. */
   encrypted: string;
+  /** Base64-encoded 12-byte initialization vector, random per call. */
   iv: string;
+  /** Base64-encoded GCM authentication tag used to verify integrity on decrypt. */
   authTag: string;
 };
 
@@ -21,6 +25,12 @@ function getKey(): Buffer {
   return key;
 }
 
+/**
+ * Encrypts a plaintext string with AES-256-GCM.
+ * @param plaintext - UTF-8 string to encrypt.
+ * @returns Payload with base64-encoded ciphertext, iv and auth tag.
+ * @throws If ENCRYPTION_SECRET is not set or is not a 32-byte hex string.
+ */
 export function encrypt(plaintext: string): EncryptedPayload {
   const key = getKey();
   const iv = crypto.randomBytes(IV_BYTES);
@@ -35,6 +45,14 @@ export function encrypt(plaintext: string): EncryptedPayload {
   };
 }
 
+/**
+ * Decrypts a payload produced by {@link encrypt}.
+ * @param encrypted - Base64-encoded ciphertext.
+ * @param iv - Base64-encoded initialization vector.
+ * @param authTag - Base64-encoded GCM authentication tag.
+ * @returns The original UTF-8 plaintext.
+ * @throws If ENCRYPTION_SECRET is not set or wrong length, or if the auth tag check fails.
+ */
 export function decrypt(encrypted: string, iv: string, authTag: string): string {
   const key = getKey();
   const decipher = crypto.createDecipheriv(ALGORITHM, key, Buffer.from(iv, 'base64'));

@@ -10,12 +10,12 @@ const AUTOSAVE_MS = 5000;
 
 export function defaultFiles(): FileNode[] {
   return [
-    { name: "index.js", path: "index.js", type: "file", content: "console.log('Hello, IndicSandbox!');\n" },
+    { name: "index.js", path: "index.js", type: "file", content: "console.log('Hello, Veda!');\n" },
     {
       name: "README.md",
       path: "README.md",
       type: "file",
-      content: "# Welcome to IndicSandbox\n\nEdit index.js and start building.\n",
+      content: "# Welcome to Veda\n\nEdit index.js and start building.\n",
     },
   ];
 }

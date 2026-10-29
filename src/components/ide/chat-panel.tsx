@@ -95,6 +95,7 @@ export default function ChatPanel() {
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {
+              // IME: Enter confirms the composed Indic character, not the message.
               if (e.nativeEvent.isComposing) return;
               e.preventDefault();
               submit();

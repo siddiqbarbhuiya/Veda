@@ -13,13 +13,23 @@ function createServiceRoleClient() {
   );
 }
 
+/** Result of a circuit breaker check. */
 export type CircuitBreakerResult = {
+  /** Whether the request may proceed. */
   allowed: boolean;
+  /** Seconds until the window resets. Null when allowed. */
   retryAfterSeconds: number | null;
 };
 
 // Records one request for the user, then checks the rolling 60s window.
 // Blocked requests are also recorded, so repeated attempts keep the user blocked.
+/**
+ * Records a request and checks the rolling 60-second window.
+ * Returns `allowed: false` with `retryAfterSeconds` when the user exceeds 10 requests.
+ * @param userId - ID of the user making the request.
+ * @returns The `CircuitBreakerResult` for this request.
+ * @throws {Error} On any database error (fail-closed design).
+ */
 export async function checkCircuitBreaker(userId: string): Promise<CircuitBreakerResult> {
   const supabase = createServiceRoleClient();
 

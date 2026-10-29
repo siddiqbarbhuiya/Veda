@@ -1,5 +1,5 @@
 {
-  "name": "indicsandbox",
+  "name": "veda",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -8,7 +8,9 @@
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
-    "rotate-keys": "npx tsx scripts/rotate-keys.ts"
+    "rotate-keys": "npx tsx scripts/rotate-keys.ts",
+    "graphify:watch": "graphify watch .",
+    "graphify:update": "graphify update ."
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",

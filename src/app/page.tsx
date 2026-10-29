@@ -32,7 +32,7 @@ export default function Home() {
   return (
     <div className="flex min-h-screen flex-col bg-white text-slate-900">
       <header className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-5">
-        <span className="text-lg font-bold tracking-tight">IndicSandbox</span>
+        <span className="text-lg font-bold tracking-tight">Veda</span>
         <Link href="/login" className="text-sm font-medium text-slate-600 hover:text-slate-900">
           Sign in
         </Link>
@@ -59,7 +59,7 @@ export default function Home() {
 
         <section className="bg-slate-50 py-20">
           <div className="mx-auto max-w-6xl px-6">
-            <h2 className="text-center text-3xl font-bold tracking-tight">Why IndicSandbox</h2>
+            <h2 className="text-center text-3xl font-bold tracking-tight">Why Veda</h2>
             <div className="mt-12 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
               {features.map((f) => (
                 <div
@@ -93,7 +93,7 @@ export default function Home() {
       </main>
 
       <footer className="border-t border-slate-200 py-8 text-center text-sm text-slate-500">
-        &copy; 2026 IndicSandbox. Made for students in India.
+        &copy; 2026 Veda. Made for students in India.
       </footer>
     </div>
   );

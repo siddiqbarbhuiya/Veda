@@ -15,8 +15,19 @@ function createServiceRoleClient() {
   );
 }
 
+/**
+ * Outcome of a balance change.
+ * - `success`: false when a deduction was rejected for insufficient balance.
+ * - `newBalance`: balance in paise after the change (0 when rejected).
+ */
 export type BalanceChange = { success: boolean; newBalance: number };
 
+/**
+ * Estimates the pre-auth hold, clamped to [10, 500] paise.
+ * @param inputTokens - Number of input tokens in the request.
+ * @param rate - Per-1k-token rates in paise.
+ * @returns Hold amount in paise.
+ */
 export function estimateHoldPaise(inputTokens: number, rate: RateConfig): number {
   const raw = Math.ceil((inputTokens * rate.output_paise_per_1k_tokens * 3) / 1000);
   return Math.min(MAX_HOLD_PAISE, Math.max(MIN_HOLD_PAISE, raw));
@@ -70,17 +81,39 @@ async function changeBalance(
 }
 
 // Adds credit to the balance (wallet top-up). Uses the same compare-and-set loop.
+/**
+ * Adds credit to a user's balance (wallet top-up).
+ * @param userId - Profile ID of the user.
+ * @param creditPaise - Amount to add, in paise.
+ * @returns The change result with the new balance.
+ * @throws If the balance cannot be read or updated, or retries are exhausted.
+ */
 export async function creditBalance(userId: string, creditPaise: number): Promise<BalanceChange> {
   return changeBalance(userId, creditPaise, false);
 }
 
 // Deducts the pre-auth hold. Returns success false when the balance is too low.
+/**
+ * Deducts the pre-auth hold from a user's balance.
+ * @param userId - Profile ID of the user.
+ * @param holdPaise - Hold amount to deduct, in paise.
+ * @returns `success: false` when the balance is too low; otherwise the new balance.
+ * @throws If the balance cannot be read or updated, or retries are exhausted.
+ */
 export async function deductHold(userId: string, holdPaise: number): Promise<BalanceChange> {
   return changeBalance(userId, -holdPaise, true);
 }
 
 // Refunds the hold minus the actual cost and records an ai_usage transaction.
 // Platform absorbs any overage beyond the hold cap.
+/**
+ * Settles a hold: refunds hold minus actual cost and records an ai_usage transaction.
+ * @param userId - Profile ID of the user.
+ * @param holdPaise - Amount previously held, in paise.
+ * @param actualCostPaise - Actual cost in paise; capped at holdPaise.
+ * @returns Resolves when the refund and transaction record are saved.
+ * @throws If the balance update or the transaction insert fails.
+ */
 export async function settleHold(
   userId: string,
   holdPaise: number,
