@@ -3,6 +3,7 @@ export const KEY_PROVIDERS = [
   { value: "openai", label: "OpenAI" },
   { value: "gemini", label: "Gemini" },
   { value: "anthropic", label: "Anthropic" },
+  { value: "openrouter", label: "OpenRouter" },
 ] as const;
 
 export type KeyProvider = (typeof KEY_PROVIDERS)[number]["value"];

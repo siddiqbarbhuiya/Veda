@@ -40,7 +40,7 @@ export type Database = {
         Row: {
           id: string;
           user_id: string;
-          provider: "openai" | "gemini" | "anthropic";
+          provider: "openai" | "gemini" | "anthropic" | "openrouter";
           encrypted_key: string;
           iv: string;
           auth_tag: string;
@@ -51,7 +51,7 @@ export type Database = {
         Insert: {
           id?: string;
           user_id: string;
-          provider: "openai" | "gemini" | "anthropic";
+          provider: "openai" | "gemini" | "anthropic" | "openrouter";
           encrypted_key: string;
           iv: string;
           auth_tag: string;
@@ -62,13 +62,46 @@ export type Database = {
         Update: {
           id?: string;
           user_id?: string;
-          provider?: "openai" | "gemini" | "anthropic";
+          provider?: "openai" | "gemini" | "anthropic" | "openrouter";
           encrypted_key?: string;
           iv?: string;
           auth_tag?: string;
           label?: string | null;
           created_at?: string;
           updated_at?: string;
+        };
+        Relationships: [];
+      };
+      agent_runs: {
+        Row: {
+          id: string;
+          user_id: string;
+          project: string;
+          provider: string;
+          model: string;
+          sandbox_seconds: number;
+          input_tokens: number;
+          output_tokens: number;
+          status: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          project: string;
+          provider: string;
+          model: string;
+          sandbox_seconds?: number;
+          input_tokens?: number;
+          output_tokens?: number;
+          status?: string;
+          created_at?: string;
+        };
+        Update: {
+          sandbox_seconds?: number;
+          input_tokens?: number;
+          output_tokens?: number;
+          status?: string;
         };
         Relationships: [];
       };
