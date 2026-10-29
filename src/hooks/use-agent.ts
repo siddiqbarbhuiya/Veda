@@ -45,11 +45,17 @@ function postStop(runId: string) {
 }
 
 /** Map an error from the run route to a message and an action. */
-export function describeAgentError(status: number, code: string | undefined, message: string | undefined): ChatError {
+export function describeAgentError(status: number, code: string | undefined, message: string | undefined, run?: string): ChatError {
   switch (code) {
     case "agent_unavailable":
       return { code, message: "Claude Code is not set up on this server yet." };
     case "busy":
+      // The earlier run may be waiting for an answer in a tab that is gone. The student can stop it.
+      return {
+        code,
+        message: message || "Claude Code is still working on your last request.",
+        ...(run ? { action: { kind: "stop_retry" as const, run } } : {}),
+      };
     case "daily_limit":
       return { code, message: message || "Claude Code cannot start right now." };
     case "sandbox_unavailable":
@@ -172,13 +178,13 @@ export function useAgent({ reconnectDelayMs = 1000 }: { reconnectDelayMs?: numbe
           signal: controller.signal,
         });
         if (!res.ok || !res.body) {
-          let body: { error?: string; code?: string } = {};
+          let body: { error?: string; code?: string; run?: string } = {};
           try {
             body = await res.json();
           } catch {
             /* not JSON */
           }
-          failed = describeAgentError(res.status, body.code, body.error);
+          failed = describeAgentError(res.status, body.code, body.error, body.run);
           // The run never started: remove the turn and give the text back.
           if (!stale()) {
             commitTurns(turnsRef.current.filter((t) => t.id !== turnId));
@@ -254,18 +260,30 @@ export function useAgent({ reconnectDelayMs = 1000 }: { reconnectDelayMs?: numbe
     // The key holds the turn too, so the same permission id in another run is not taken as answered.
     const key = answeredKey(turnId, permissionId);
     setAnswered((s) => new Set(s).add(key));
-    void fetch("/api/agent/permission", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ run: runId, id: permissionId, allow, always }),
-    }).catch(() => {
-      // The answer did not arrive: show the buttons again.
+    const undo = (message: string) => {
+      // The answer did not arrive: show the buttons again, with the reason.
       setAnswered((s) => {
         const next = new Set(s);
         next.delete(key);
         return next;
       });
-    });
+      setError({ code: "answer_failed", message, at: Date.now() });
+    };
+    void fetch("/api/agent/permission", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ run: runId, id: permissionId, allow, always }),
+    })
+      .then((res) => {
+        if (!res.ok) {
+          undo(
+            res.status === 404
+              ? "Claude Code is no longer running, so your answer was not used. Start the request again."
+              : "Could not send your answer. Try again."
+          );
+        }
+      })
+      .catch(() => undo("Could not send your answer. Check your connection and try again."));
   }, []);
 
   const setDecision = (turnId: number, paths: string[], value: ChangeDecision) =>
@@ -311,10 +329,20 @@ export function useAgent({ reconnectDelayMs = 1000 }: { reconnectDelayMs?: numbe
     if (last) void send(last.prompt, last.choice);
   }, [send]);
 
+  /** Stop an earlier run that blocks the new one, give it a moment to end, then send the request again. */
+  const stopAndRetry = useCallback(
+    async (run: string) => {
+      postStop(run);
+      await sleep(1500);
+      retry();
+    },
+    [retry],
+  );
+
   const clearDraft = useCallback(() => setDraft(null), []);
 
   // Leaving the page ends the connection only. The run goes on in the sandbox and stops by itself.
   useEffect(() => () => abortRef.current?.abort(), []);
 
-  return { turns, running, error, draft, clearDraft, decisions, answered, send, stop, retry, newChat, answerPermission, accept, reject };
+  return { turns, running, error, draft, clearDraft, decisions, answered, send, stop, retry, stopAndRetry, newChat, answerPermission, accept, reject };
 }

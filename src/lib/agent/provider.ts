@@ -3,7 +3,9 @@ import { E2BProvider } from "./e2b-provider";
 import { FakeSandboxProvider } from "./fake-provider";
 
 // One instance for the whole server process. The fake provider keeps its runs in memory.
-let cached: SandboxProvider | null | undefined;
+// It lives on globalThis: in `next dev` a route module can be loaded again after an edit, and a module-level
+// variable would then lose the sandbox of a run that is still going (its permission answers would give 404).
+const store = globalThis as unknown as { __vedaSandboxProvider?: SandboxProvider | null };
 
 /**
  * The sandbox provider from the environment.
@@ -11,19 +13,19 @@ let cached: SandboxProvider | null | undefined;
  * Null means Claude Code is not set up on this server.
  */
 export function getSandboxProvider(): SandboxProvider | null {
-  if (cached !== undefined) return cached;
+  if (store.__vedaSandboxProvider !== undefined) return store.__vedaSandboxProvider;
   if (process.env.AGENT_SANDBOX === "fake") {
     // The fake provider drips events so the UI shows the run as it goes.
-    cached = new FakeSandboxProvider(undefined, 400);
+    store.__vedaSandboxProvider = new FakeSandboxProvider(undefined, 400);
   } else if (process.env.E2B_API_KEY) {
-    cached = new E2BProvider();
+    store.__vedaSandboxProvider = new E2BProvider();
   } else {
-    cached = null;
+    store.__vedaSandboxProvider = null;
   }
-  return cached;
+  return store.__vedaSandboxProvider;
 }
 
 /** Test helper. */
 export function setSandboxProviderForTests(p: SandboxProvider | null | undefined): void {
-  cached = p;
+  store.__vedaSandboxProvider = p;
 }

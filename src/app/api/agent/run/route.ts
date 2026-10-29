@@ -136,7 +136,11 @@ export async function POST(request: Request): Promise<Response> {
       usage = await loadUsage(admin, userId, limits);
     }
     const verdict = checkAgentLimits(usage, limits);
-    if (!verdict.ok) return json({ error: verdict.message, code: verdict.code }, verdict.code === "busy" ? 409 : 429);
+    if (!verdict.ok) {
+      // For "busy" the answer names the run that is still going, so the browser can offer "Stop it and send again".
+      const busyRun = verdict.code === "busy" && usage.activeRunKey ? { run: usage.activeRunKey } : {};
+      return json({ error: verdict.message, code: verdict.code, ...busyRun }, verdict.code === "busy" ? 409 : 429);
+    }
   } catch (err) {
     console.error("agent usage lookup failed", err);
     return json({ error: "Service temporarily unavailable", code: "service_unavailable" }, 503);

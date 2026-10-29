@@ -272,6 +272,11 @@ export default function AgentPanel() {
                       Retry
                     </Button>
                   )}
+                  {agent.error.action?.kind === "stop_retry" && (
+                    <Button variant="secondary" size="xs" onClick={() => void agent.stopAndRetry((agent.error!.action as { run: string }).run)}>
+                      Stop it and send again
+                    </Button>
+                  )}
                 </div>
               )}
             </div>
@@ -297,6 +302,11 @@ export default function AgentPanel() {
             <a href={agent.error.action.href} className={buttonStyles({ variant: "secondary", size: "xs" })}>
               {agent.error.action.label}
             </a>
+          )}
+          {agent.error.action?.kind === "stop_retry" && (
+            <Button variant="secondary" size="xs" onClick={() => void agent.stopAndRetry((agent.error!.action as { run: string }).run)}>
+              Stop it and send again
+            </Button>
           )}
         </div>
       ) : null}

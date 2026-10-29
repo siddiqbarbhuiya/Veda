@@ -13,20 +13,22 @@ export async function loadUsage(
   userId: string,
   limits: AgentLimits,
   now: number = Date.now()
-): Promise<{ activeRuns: number; minutesToday: number }> {
+): Promise<{ activeRuns: number; minutesToday: number; activeRunKey?: string }> {
   const { data, error } = await admin
     .from("agent_runs")
-    .select("status, sandbox_seconds, created_at")
+    .select("run_key, status, sandbox_seconds, created_at")
     .eq("user_id", userId)
     .gte("created_at", new Date(now - DAY_MS).toISOString());
   if (error) throw error;
   let activeRuns = 0;
+  let activeRunKey: string | undefined;
   let seconds = 0;
   for (const r of data ?? []) {
     if (r.status === "running") {
       const age = now - new Date(r.created_at).getTime();
       if (age < limits.runMaxSeconds * 1000 + STALE_GRACE_MS) {
         activeRuns++;
+        activeRunKey ??= r.run_key;
         seconds += age / 1000;
       } else {
         seconds += limits.runMaxSeconds;
@@ -35,7 +37,7 @@ export async function loadUsage(
       seconds += r.sandbox_seconds;
     }
   }
-  return { activeRuns, minutesToday: seconds / 60 };
+  return { activeRuns, minutesToday: seconds / 60, activeRunKey };
 }
 
 export async function startRunRow(

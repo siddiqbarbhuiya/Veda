@@ -132,10 +132,12 @@ describe("POST /api/agent/run", () => {
     await readAll(res);
   });
 
-  it("still answers 409 when the active run is really running", async () => {
-    mocks.loadUsage.mockResolvedValue({ activeRuns: 1, minutesToday: 0 });
+  it("still answers 409 when the active run is really running, and names that run", async () => {
+    mocks.loadUsage.mockResolvedValue({ activeRuns: 1, minutesToday: 0, activeRunKey: "fake9.abc" });
     mocks.reconcileRuns.mockResolvedValue(0);
-    expect((await POST(post(validBody))).status).toBe(409);
+    const res = await POST(post(validBody));
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ code: "busy", run: "fake9.abc" });
   });
 
   it("answers 409 when a run is already active and 429 over the daily cap", async () => {

@@ -16,7 +16,11 @@ export interface ModelChoice {
 }
 
 /** What the user can do about an error. Links are plain anchors: the IDE needs a full page load. */
-export type ChatErrorAction = { kind: "link"; label: string; href: string } | { kind: "retry" };
+export type ChatErrorAction =
+  | { kind: "link"; label: string; href: string }
+  | { kind: "retry" }
+  /** Claude Code only: stop the run that is still going, then send the request again. */
+  | { kind: "stop_retry"; run: string };
 
 export interface ChatError {
   message: string;

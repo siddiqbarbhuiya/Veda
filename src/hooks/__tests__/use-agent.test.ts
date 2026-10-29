@@ -241,6 +241,30 @@ describe("useAgent stop and permissions", () => {
     expect(JSON.parse(stopCall![1].body)).toEqual({ run: "s1.r1" });
   });
 
+  it("shows the buttons again and explains when the server refuses a permission answer", async () => {
+    const fetchMock = vi.fn().mockImplementation(async (url: string) => {
+      if (url === "/api/agent/permission") return new Response('{"code":"not_found"}', { status: 404 });
+      return sse([{ seq: 0, type: "permission", id: "p1", tool: "Bash", summary: "ls" }]);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const { result } = renderHook(() => useAgent({ reconnectDelayMs: 0 }));
+    let run!: Promise<void>;
+    act(() => {
+      run = result.current.send("go", choice);
+    });
+    await waitFor(() => expect(result.current.turns[0]?.events.length).toBe(1));
+    const id = result.current.turns[0].id;
+    act(() => result.current.answerPermission(id, "p1", true));
+    await waitFor(() => expect(result.current.error?.code).toBe("answer_failed"));
+    expect(result.current.answered.has(answeredKey(id, "p1"))).toBe(false);
+    expect(result.current.error?.message).toMatch(/no longer running/);
+    // End the pending reconnect loop of this test run.
+    act(() => result.current.newChat());
+    await act(async () => {
+      await run;
+    });
+  });
+
   it("keys an answered permission by turn, so the same id in a later run still asks", async () => {
     const fetchMock = vi.fn().mockImplementation(async (url: string) => {
       if (url === "/api/agent/permission") return new Response("{}", { status: 200 });
@@ -260,6 +284,35 @@ describe("useAgent stop and permissions", () => {
     const second = result.current.turns[1].id;
     expect(result.current.answered.has(answeredKey(second, "p1"))).toBe(false);
     expect(answeredKey(1, "p1")).not.toBe(answeredKey(2, "p1"));
+  });
+});
+
+describe("busy run", () => {
+  it("offers to stop the earlier run, stops it, and sends the request again", async () => {
+    let posts = 0;
+    const fetchMock = vi.fn().mockImplementation(async (url: string) => {
+      if (url === "/api/agent/stop") return new Response("{}", { status: 200 });
+      posts++;
+      if (posts === 1) return new Response(JSON.stringify({ error: "Still working.", code: "busy", run: "old1.run1" }), { status: 409 });
+      return sse([text(0), { seq: 1, type: "done" }]);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const { result } = renderHook(() => useAgent({ reconnectDelayMs: 0 }));
+    await act(async () => {
+      await result.current.send("go", choice);
+    });
+    expect(result.current.error?.action).toEqual({ kind: "stop_retry", run: "old1.run1" });
+    await act(async () => {
+      await result.current.stopAndRetry("old1.run1");
+    });
+    const stopCall = fetchMock.mock.calls.find((c) => c[0] === "/api/agent/stop");
+    expect(JSON.parse(stopCall![1].body)).toEqual({ run: "old1.run1" });
+    expect(result.current.turns[0].events.map((e) => e.seq)).toEqual([0, 1]);
+  });
+
+  it("gives no stop button when the server names no run", () => {
+    expect(describeAgentError(409, "busy", "Wait.").action).toBeUndefined();
+    expect(describeAgentError(409, "busy", "Wait.", "a.b").action).toEqual({ kind: "stop_retry", run: "a.b" });
   });
 });
 
