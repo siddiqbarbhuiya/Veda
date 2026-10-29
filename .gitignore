@@ -47,3 +47,6 @@ graphify-out/
 
 # playwright mcp output
 .playwright-mcp/
+
+# agent work copies (each has its own node_modules)
+.claude/worktrees/

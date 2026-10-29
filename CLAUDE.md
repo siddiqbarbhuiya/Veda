@@ -48,3 +48,13 @@ See `docs/setup/environment.md` for the full list. Key vars:
 - `ENCRYPTION_SECRET` — 32-byte hex for AES-256-GCM key encryption
 - `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`
 - `PAYMENT_MODE` — `simulator` or `live`
+
+## Design skills (`.claude/skills/`)
+
+Copied from https://github.com/nextlevelbuilder/ui-ux-pro-max-skill (MIT). Design rules for this app are in `docs/design-system.md`.
+
+- `ui-ux-pro-max` - styles, palettes, font pairs, UX rules and checklist. Use it before UI work.
+- `design-system`, `ui-styling` - token architecture; Tailwind and shadcn/ui guidance (Veda uses Tailwind 4 without shadcn).
+- `brand`, `design`, `slides`, `banner-design` - brand voice, logos, slides, banners.
+- Their Python and Node scripts run only when the user allows it. `design` logo and icon scripts call paid AI image APIs with a key the user supplies. `ui-styling/scripts/shadcn_add.py` runs `npx shadcn`.
+- Update by copying the folders again from the repo, then review the diff.
