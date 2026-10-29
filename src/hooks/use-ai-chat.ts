@@ -11,6 +11,8 @@ export interface ChatMessage {
 export interface ModelChoice {
   provider: string;
   model: string;
+  /** Models to try, in order, when this one hits a limit or a server error before any text. */
+  fallbacks?: { provider: string; model: string }[];
 }
 
 /** What the user can do about an error. Links are plain anchors: the IDE needs a full page load. */
@@ -168,7 +170,13 @@ export function useAiChat() {
         const res = await fetch("/api/ai/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ provider: choice.provider, model: choice.model, messages: payload, stream: true }),
+          body: JSON.stringify({
+            provider: choice.provider,
+            model: choice.model,
+            messages: payload,
+            stream: true,
+            ...(choice.fallbacks && choice.fallbacks.length > 0 ? { fallbacks: choice.fallbacks } : {}),
+          }),
           signal: controller.signal,
         });
         if (!res.ok || !res.body) {
