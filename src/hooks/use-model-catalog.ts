@@ -134,6 +134,22 @@ export function useModelCatalog(providers?: readonly string[]) {
   const items = useMemo<ModelItem[]>(() => {
     const has = (p: string) => (keyed ? keyed.has(p) : null);
     const out: ModelItem[] = [];
+    // The student's own OmniRoute comes first: their combos are what they made for this.
+    if ((!providers || providers.includes("omniroute")) && omni.length > 0) {
+      for (const m of omni) {
+        out.push({
+          key: itemKey("omniroute", m.id),
+          provider: "omniroute",
+          model: m.id,
+          label: m.id,
+          group: m.combo ? "OmniRoute combos" : "OmniRoute models",
+          free: false,
+          keyed: true,
+          rate: ZERO_RATE,
+          contextLength: m.context_length || undefined,
+        });
+      }
+    }
     for (const r of rates) {
       if (providers && !providers.includes(r.provider)) continue;
       out.push({
@@ -160,21 +176,6 @@ export function useModelCatalog(providers?: readonly string[]) {
           keyed: orKeyed,
           rate: m.rate,
           hint: ctxHint(m.context_length),
-          contextLength: m.context_length || undefined,
-        });
-      }
-    }
-    if ((!providers || providers.includes("omniroute")) && omni.length > 0) {
-      for (const m of omni) {
-        out.push({
-          key: itemKey("omniroute", m.id),
-          provider: "omniroute",
-          model: m.id,
-          label: m.id,
-          group: m.combo ? "OmniRoute combos" : "OmniRoute models",
-          free: false,
-          keyed: true,
-          rate: ZERO_RATE,
           contextLength: m.context_length || undefined,
         });
       }
