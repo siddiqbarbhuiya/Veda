@@ -1,5 +1,26 @@
 # Changelog
 
+## Unreleased - Claude Code tab, OpenRouter and combos (2026-10-29)
+
+### AI panel
+- Two tabs: **Chat** and **Claude Code**. The model selector moved from the panel top to the message row at the bottom.
+- The model picker is searchable and has a "Free only" filter. It lists every OpenRouter model.
+- Combos: an ordered list of models with priority or round-robin order. A limit (429) or a server error before the
+  first text moves on to the next model. Chat and Claude Code both use them.
+
+### Providers
+- OpenRouter: new provider (`src/lib/ai-providers/openrouter.ts`), key type, model list at `/api/models/openrouter`,
+  and a provisional paise rate from the OpenRouter price (`OPENROUTER_USD_INR`, `OPENROUTER_MARGIN`). Free models cost 0 paise.
+
+### Claude Code tab
+- The real Claude Code engine (Claude Agent SDK) runs in an E2B sandbox. Files from the browser go in. File changes come
+  back as diffs. The student accepts or rejects each file. Bash needs approval.
+- The API key never enters the sandbox. The sandbox holds a signed token and calls the Veda LLM proxy
+  (`/api/agent/llm/v1/messages`), which adds the key and applies the combo.
+- Safety caps: one run for each student, `AGENT_DAILY_MINUTES`, `AGENT_RUN_MAX_SECONDS`, 10 minute idle stop.
+- Usage is recorded in `agent_runs`. Nothing is charged yet (`docs/product/pricing-later.md`).
+- Setup: `docs/setup/claude-code-sandbox.md`. New package: `e2b`. New migration: `00010`.
+
 ## Unreleased - UI/UX redesign (2026-10-29)
 
 ### Design system

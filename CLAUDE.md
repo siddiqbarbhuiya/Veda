@@ -17,8 +17,8 @@ Next.js 16.4.3 App Router · Supabase · Tailwind 4 · Razorpay · WebContainers
 
 - **Route groups:** `(auth)`, `(dashboard)`, `(ide)` — each has its own layout
 - **API routes:** `src/app/api/` — keys, wallet (balance/topup/transactions), webhooks/razorpay, ai/chat
-- **Libs:** `src/lib/` — supabase, crypto, billing, circuit-breaker, ai-providers, razorpay, persistence
-- **Hooks:** `src/hooks/` — use-file-system, use-webcontainer, use-pyodide, use-ai-chat
+- **Libs:** `src/lib/` — supabase, crypto, billing, circuit-breaker, ai-providers, razorpay, persistence, agent (Claude Code sandbox), openrouter, combos
+- **Hooks:** `src/hooks/` — use-file-system, use-webcontainer, use-pyodide, use-ai-chat, use-agent, use-model-catalog
 - **Components:** `src/components/` — ide/, keys/, payments/
 
 ## Key Conventions
@@ -31,6 +31,8 @@ Next.js 16.4.3 App Router · Supabase · Tailwind 4 · Razorpay · WebContainers
 - AI chat route uses `runtime = "nodejs"` (not edge) — `node:crypto` needed for key decryption
 - Billing uses **paise** (integer, 1 INR = 100 paise). Settlement caps cost at hold amount
 - Razorpay env flag: `PAYMENT_MODE=simulator|live`
+- Claude Code tab: real Claude Agent SDK in an E2B sandbox; the key stays on the server (signed token + `/api/agent/llm` proxy). Setup in `docs/setup/claude-code-sandbox.md`. Cost and pricing are deferred (`docs/product/pricing-later.md`)
+- `AGENT_SANDBOX=fake` runs the Claude Code tab with an in-memory fake (no E2B account)
 - IME composition check (`e.nativeEvent.isComposing`) on chat inputs for Indic script users
 
 ## Testing

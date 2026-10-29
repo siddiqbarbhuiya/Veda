@@ -385,6 +385,9 @@ Result on 2026-10-29: all 6 cases matched. The balance went from 11900 to 14800 
 3. Save the file.
 4. Run `git status`. Make sure `.env.local` does not show in the list.
 
+Optional, for the Claude Code tab and OpenRouter pricing: `E2B_API_KEY`, `AGENT_PUBLIC_URL`, `AGENT_KEY_MODE`, `AGENT_SANDBOX`,
+`AGENT_DAILY_MINUTES`, `AGENT_RUN_MAX_SECONDS`, `OPENROUTER_USD_INR`, `OPENROUTER_MARGIN`. See `docs/setup/claude-code-sandbox.md`.
+
 ## 14. Start the app and test login
 
 1. Run `npm run dev`.
