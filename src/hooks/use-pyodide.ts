@@ -20,6 +20,7 @@ type PyodideLike = {
   runPython: (code: string) => unknown;
   runPythonAsync: (code: string, options?: { globals?: PyProxyLike }) => Promise<unknown>;
   loadPackagesFromImports: (code: string) => Promise<void>;
+  loadPackage: (names: string | string[]) => Promise<unknown>;
   setStdout: (o: StdOptions) => void;
   setStderr: (o: StdOptions) => void;
   setStdin?: (o: { stdin: () => string | undefined }) => void;
@@ -46,6 +47,9 @@ let scriptPromise: Promise<void> | null = null;
 let loadPromise: Promise<PyodideLike> | null = null;
 let attachedTerm: Terminal | null = null;
 let mirrored = new Set<string>();
+// Requirements that micropip installed in this page. The list is lost on reload, like the Pyodide file system.
+const installedSpecs = new Set<string>();
+
 // What the editor and Python agreed on at the last copy, in `flattenTree` keys. Null before the first run.
 let synced: Map<string, string> | null = null;
 
@@ -178,10 +182,36 @@ async function runCode(code: string, files?: FileNode[]): Promise<PythonResult> 
   }
 }
 
+export type InstallResult = { ok: true } | { ok: false; message: string };
+
+/** Install pip requirements with micropip. A spec that is installed in this page is skipped. */
+async function installPackages(specs: string[]): Promise<InstallResult> {
+  const py = await load();
+  let globals: PyProxyLike | null = null;
+  try {
+    await py.loadPackage("micropip");
+    globals = (py.globals.get("dict") as () => PyProxyLike)();
+    for (const spec of specs) {
+      if (installedSpecs.has(spec)) continue;
+      // The spec goes in as data, never as code.
+      globals.set("_spec", spec);
+      await py.runPythonAsync("import micropip\nawait micropip.install(_spec)", { globals });
+      installedSpecs.add(spec);
+    }
+    return { ok: true };
+  } catch (err) {
+    const raw = err instanceof Error ? err.message : String(err);
+    const lines = trimPyTraceback(raw).split("\n").filter(Boolean);
+    return { ok: false, message: lines[lines.length - 1] ?? "pip install failed" };
+  } finally {
+    globals?.destroy?.();
+  }
+}
+
 function attachTerminal(t: Terminal | null) {
   attachedTerm = t;
 }
 
 export function usePyodide() {
-  return useMemo(() => ({ load, runCode, attachTerminal, pullFromPython }), []);
+  return useMemo(() => ({ load, runCode, attachTerminal, pullFromPython, installPackages }), []);
 }

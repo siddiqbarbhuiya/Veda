@@ -14,6 +14,7 @@ export const IDE_EVENTS = {
   saved: "veda:saved",
   runCommands: "veda:run-commands",
   openDialog: "veda:open-dialog",
+  installPython: "veda:install-python",
 } as const;
 
 /** Run commands one after the other in the Node runtime. The terminal panel listens. */
@@ -42,6 +43,8 @@ export type IdeEventMap = {
   "veda:run-commands": RunCommandsDetail;
   /** Ask the IDE shell to open a dialog. */
   "veda:open-dialog": { dialog: "templates" | "packages" };
+  /** Install pip requirements in Python. With `save`, they are added to requirements.txt. */
+  "veda:install-python": { specs: string[]; save: boolean };
 };
 
 export type IdeEventName = keyof IdeEventMap;

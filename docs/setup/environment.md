@@ -546,7 +546,8 @@ The GitHub and Google apps need no change. Their callback URL points to Supabase
 - Terminal sync (Phase 0 of `docs/product/editor-prd.md`): files and folders that a terminal command, a Node script or a Python script creates, changes or deletes now show in the file tree and in the cloud copy. `node_modules`, `.git`, `dist` and other generated folders are not copied. Binary files and files over 512 KB are not copied. Editor changes reach the terminal after 0.4 s without a Run.
 - `node_modules`: the file tree shows it as a dimmed, read-only folder. Folders load when you open them. It is not saved to IndexedDB or the cloud. After a reload the runtime has no `node_modules`, so the editor runs `npm install` once if `package.json` lists packages.
 - Phase 1: templates (Python, Node script, Vite + React, Express) in their own folder, an Add package dialog (`npm install` in a chosen folder, names are checked), and a Preview tab. A dev server runs in the background, so the shell stays usable. Press Stop to end it. `node_modules` of a project folder shows read-only inside that folder, and the editor restores it after a reload.
-- Known gaps: Python `pip` packages, a preview console, a Python worker, IndexedDB `blocked` handling, the `middleware` to `proxy` rename, and a WebContainer API commercial licence.
+- Python packages: the Add package dialog has a pip tab. It installs with micropip in the browser and lists the package in `requirements.txt`. The editor installs that file again before the first Python run after a reload. Pure-Python packages and the packages that Pyodide ships (for example numpy) work. Packages that need native code do not.
+- Known gaps: a preview console, a Python worker, IndexedDB `blocked` handling, the `middleware` to `proxy` rename, and a WebContainer API commercial licence.
 
 ## 18. Key rotation
 

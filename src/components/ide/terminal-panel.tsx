@@ -10,6 +10,7 @@ import { usePyodide, PYODIDE_DOWNLOAD_ERROR } from "@/hooks/use-pyodide";
 import { nodePath, runtimeForFile, type RunKind } from "@/hooks/run-helpers";
 import { packageJsonHasDeps, RUNTIME_DIR } from "@/lib/files/runtime-view";
 import { packageFolders } from "@/lib/templates/packages";
+import { addRequirement, parseRequirements } from "@/lib/templates/pip";
 import { useTheme } from "@/components/ui/theme";
 import { Button } from "@/components/ui/button";
 import { useRuntime } from "./runtime-context";
@@ -250,6 +251,16 @@ export default function TerminalPanel({ tabs }: { tabs?: React.ReactNode }) {
       } else {
         setBusyFor("python", PY_LOADING_LABEL);
         await py.load();
+        const requirements = parseRequirements(findNode(projectFiles, "requirements.txt")?.content);
+        if (requirements.length > 0) {
+          setBusyFor("python", INSTALL_LABEL);
+          const installed = await py.installPackages(requirements);
+          if (!installed.ok) {
+            term.writeln(`\x1b[31m${installed.message}\x1b[0m`);
+            setError({ message: `pip install failed: ${installed.message}`, kind: "run" });
+            return;
+          }
+        }
         setBusyFor("python", RUNNING_LABEL);
         dim(term, "Python runs in the page: infinite loops cannot be stopped; reload if it freezes.");
         dim(term, `>>> ${file.path}`);
@@ -318,6 +329,48 @@ export default function TerminalPanel({ tabs }: { tabs?: React.ReactNode }) {
     [wc, setRuntime, setBusyFor, pullRuntime]
   );
   useIdeEvent("veda:run-commands", (detail) => void runCommands(detail));
+
+  /** Install pip requirements in Python and list them in requirements.txt. */
+  const installPython = useCallback(
+    async (detail: { specs: string[]; save: boolean }) => {
+      const term = termRef.current;
+      if (!term) return;
+      setHasOutput(true);
+      if (busyRef.current.node || busyRef.current.python) {
+        dim(term, "The runtime is busy. Wait for it, or press Stop.");
+        return;
+      }
+      if (latest.current.runtime !== "python") setRuntime("python");
+      setError(null);
+      try {
+        setBusyFor("python", PY_LOADING_LABEL);
+        await py.load();
+        setBusyFor("python", INSTALL_LABEL);
+        for (const spec of detail.specs) {
+          dim(term, `$ pip install ${spec}`);
+          const result = await py.installPackages([spec]);
+          if (!result.ok) {
+            term.writeln(`\x1b[31m${result.message}\x1b[0m`);
+            setError({ message: `pip install failed: ${result.message}`, kind: "run" });
+            break;
+          }
+          dim(term, "installed");
+          if (detail.save) {
+            const text = findNode(latest.current.files, "requirements.txt")?.content;
+            latest.current.applyRuntimeChanges({ upsert: [["requirements.txt", addRequirement(text, spec)]], remove: [] });
+          }
+        }
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        if (msg === PYODIDE_DOWNLOAD_ERROR) setError({ message: msg, kind: "python-load" });
+        else setError({ message: `Python runtime failed: ${msg}`, kind: "run" });
+      } finally {
+        setBusyFor("python", null);
+      }
+    },
+    [py, setRuntime, setBusyFor]
+  );
+  useIdeEvent("veda:install-python", (detail) => void installPython(detail));
 
   // Shell -> terminal: same as the Run button.
   useIdeEvent("veda:run", () => {
