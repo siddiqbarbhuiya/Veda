@@ -64,6 +64,12 @@ class FakeRun {
     else step();
   }
 
+  stop() {
+    this.stopped = true;
+    this.waiting = null;
+    if (!this.events.some((e) => e.type === "done")) this.push({ type: "done" });
+  }
+
   answer(id: string, allow: boolean) {
     if (this.waiting !== id) return;
     this.waiting = null;
@@ -82,7 +88,8 @@ class FakeHandle implements SandboxHandle {
     private delayMs: number
   ) {}
 
-  async startRun(input: RunnerInput) {
+  async startRun(input: RunnerInput, env?: Record<string, string>) {
+    void env; // the fake runs no process, so it needs no environment
     this.runs.set(input.runId, new FakeRun(this.script(input), this.delayMs));
   }
   async readEvents(runId: string, fromSeq: number) {
@@ -92,8 +99,7 @@ class FakeHandle implements SandboxHandle {
     this.runs.get(runId)?.answer(permissionId, allow);
   }
   async stop(runId: string) {
-    const r = this.runs.get(runId);
-    if (r) r.stopped = true;
+    this.runs.get(runId)?.stop();
   }
   async keepAlive() {}
   async kill() {

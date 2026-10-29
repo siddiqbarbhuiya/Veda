@@ -75,6 +75,7 @@ export type Database = {
       agent_runs: {
         Row: {
           id: string;
+          run_key: string;
           user_id: string;
           project: string;
           provider: string;
@@ -87,6 +88,7 @@ export type Database = {
         };
         Insert: {
           id?: string;
+          run_key: string;
           user_id: string;
           project: string;
           provider: string;

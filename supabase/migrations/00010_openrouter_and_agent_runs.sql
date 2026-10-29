@@ -5,6 +5,8 @@ ALTER TABLE api_keys
 
 CREATE TABLE agent_runs (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  -- The run id the browser and the sandbox use: <sandboxId>.<random>.
+  run_key text NOT NULL UNIQUE,
   user_id uuid NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
   project text NOT NULL,
   provider text NOT NULL,
