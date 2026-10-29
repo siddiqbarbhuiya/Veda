@@ -7,6 +7,8 @@ import { estimateTokens, estimateMessagesTokens } from "@/lib/billing/tokens";
 import { decrypt } from "@/lib/crypto/encryption";
 import { getProviderAdapter } from "@/lib/ai-providers";
 import type { ChatMessage, StreamChunk } from "@/lib/ai-providers";
+import { fetchOpenRouterModels, rateForModel } from "@/lib/openrouter/models";
+import { isFallbackStatus, parseEntries, type ComboEntry } from "@/lib/combos";
 import type { Database } from "@/types/database";
 
 // Node.js runtime on purpose: decrypt() uses node:crypto, which the edge runtime lacks.
@@ -14,17 +16,19 @@ export const runtime = "nodejs";
 // A long stream must end before the host kills the function (a killed function cannot settle).
 export const maxDuration = 60;
 
-const PROVIDERS = ["openai", "gemini", "anthropic"] as const;
+const PROVIDERS = ["openai", "gemini", "anthropic", "openrouter"] as const;
 type Provider = (typeof PROVIDERS)[number];
 const PROVIDER_LABEL: Record<Provider, string> = {
   openai: "OpenAI",
   gemini: "Gemini",
   anthropic: "Anthropic",
+  openrouter: "OpenRouter",
 };
 
 const MAX_MESSAGES = 40;
 const MAX_TOTAL_CHARS = 200_000;
 const MAX_BODY_CHARS = 1_000_000;
+const MAX_FALLBACKS = 4;
 const DEFAULT_RETRY_AFTER_SECONDS = 30;
 
 // Service role client bypasses RLS. Used only after auth succeeds.
@@ -107,6 +111,67 @@ function classifyProviderError(err: unknown, provider: Provider, apiKey: string)
 const isAbort = (err: unknown) =>
   (err as { name?: string } | null)?.name === "AbortError" || (err as { code?: string } | null)?.code === "ABORT_ERR";
 
+type Rate = { input_paise_per_1k_tokens: number; output_paise_per_1k_tokens: number };
+type Admin = ReturnType<typeof createServiceRoleClient>;
+type Target = { provider: Provider; model: string; rate: Rate; apiKey: string };
+
+// Rate for one model. OpenRouter models are priced from the OpenRouter catalogue, the others from rate_config.
+// `failed` means the lookup itself broke. `rate` null means the model is not supported.
+async function loadRate(
+  admin: Admin,
+  provider: Provider,
+  model: string
+): Promise<{ rate: Rate | null; failed: boolean }> {
+  if (provider === "openrouter") {
+    try {
+      const found = (await fetchOpenRouterModels()).find((m) => m.id === model);
+      return { rate: found ? rateForModel(found) : null, failed: false };
+    } catch {
+      return { rate: null, failed: true };
+    }
+  }
+  const { data, error } = await admin
+    .from("rate_config")
+    .select("input_paise_per_1k_tokens, output_paise_per_1k_tokens")
+    .eq("provider", provider)
+    .eq("model", model)
+    .eq("is_active", true)
+    .maybeSingle();
+  if (error) return { rate: null, failed: true };
+  return { rate: data ?? null, failed: false };
+}
+
+// Decrypted key for one provider, or null when the student has not saved one. Throws on a database or decrypt error.
+async function loadKey(admin: Admin, userId: string, provider: Provider): Promise<string | null> {
+  const { data: keyRow, error: keyError } = await admin
+    .from("api_keys")
+    .select("encrypted_key, iv, auth_tag")
+    .eq("user_id", userId)
+    .eq("provider", provider)
+    .maybeSingle();
+  if (keyError) throw keyError;
+  if (!keyRow) return null;
+  return decrypt(keyRow.encrypted_key, keyRow.iv, keyRow.auth_tag);
+}
+
+// Take entries from the front of `pending` until one has a rate and a key. Entries that cannot run are skipped.
+async function nextEntry(admin: Admin, userId: string, pending: ComboEntry[]): Promise<Target | null> {
+  while (pending.length > 0) {
+    const e = pending.shift()!;
+    const provider = e.provider as Provider;
+    try {
+      const { rate } = await loadRate(admin, provider, e.model);
+      if (!rate) continue;
+      const apiKey = await loadKey(admin, userId, provider);
+      if (apiKey === null) continue;
+      return { provider, model: e.model, rate, apiKey };
+    } catch (err) {
+      console.error("combo: entry skipped", { provider, model: e.model, err });
+    }
+  }
+  return null;
+}
+
 export async function POST(request: Request): Promise<Response> {
   // 1. Auth
   const authClient = await createServerClient();
@@ -126,20 +191,23 @@ export async function POST(request: Request): Promise<Response> {
   if (raw.length > MAX_BODY_CHARS) {
     return json({ error: "Message too long", code: "payload_too_large" }, 413);
   }
-  let body: { provider?: unknown; model?: unknown; messages?: unknown };
+  let body: { provider?: unknown; model?: unknown; messages?: unknown; fallbacks?: unknown };
   try {
     body = JSON.parse(raw);
   } catch {
     return json({ error: "Invalid JSON body", code: "invalid_request" }, 400);
   }
   const { provider, model, messages } = body;
+  const fallbackEntries = parseEntries(body.fallbacks, MAX_FALLBACKS);
   if (
     typeof provider !== "string" ||
     !PROVIDERS.includes(provider as Provider) ||
     typeof model !== "string" ||
     !Array.isArray(messages) ||
     messages.length === 0 ||
-    !messages.every(isChatMessage)
+    !messages.every(isChatMessage) ||
+    fallbackEntries === null ||
+    !fallbackEntries.every((e) => PROVIDERS.includes(e.provider as Provider))
   ) {
     return json({ error: "Invalid provider, model or messages", code: "invalid_request" }, 400);
   }
@@ -158,33 +226,22 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   const admin = createServiceRoleClient();
-  const { data: rate, error: rateError } = await admin
-    .from("rate_config")
-    .select("input_paise_per_1k_tokens, output_paise_per_1k_tokens")
-    .eq("provider", provider)
-    .eq("model", model)
-    .eq("is_active", true)
-    .maybeSingle();
-  if (rateError) return json({ error: "Failed to load rates", code: "server_error" }, 500);
-  if (!rate) return json({ error: "Model not supported", code: "model_unsupported" }, 400);
+  const primaryRate = await loadRate(admin, provider as Provider, model);
+  if (primaryRate.failed) return json({ error: "Failed to load rates", code: "server_error" }, 500);
+  if (!primaryRate.rate) return json({ error: "Model not supported", code: "model_unsupported" }, 400);
+  const rate = primaryRate.rate;
 
   // 3. API key. Checked BEFORE the hold, so a missing key never touches the balance or the ledger.
   let apiKey: string;
   try {
-    const { data: keyRow, error: keyError } = await admin
-      .from("api_keys")
-      .select("encrypted_key, iv, auth_tag")
-      .eq("user_id", userId)
-      .eq("provider", provider as Provider)
-      .maybeSingle();
-    if (keyError) throw keyError;
-    if (!keyRow) {
+    const key = await loadKey(admin, userId, provider as Provider);
+    if (key === null) {
       return json(
         { error: `No API key saved for ${PROVIDER_LABEL[provider as Provider]}`, code: "no_api_key" },
         400
       );
     }
-    apiKey = decrypt(keyRow.encrypted_key, keyRow.iv, keyRow.auth_tag);
+    apiKey = key;
   } catch (err) {
     console.error("key fetch or decrypt failed", err);
     return json({ error: "Failed to start AI request", code: "server_error" }, 500);
@@ -232,33 +289,51 @@ export async function POST(request: Request): Promise<Response> {
   if (request.signal.aborted) upstream.abort();
   else request.signal.addEventListener("abort", onClientAbort, { once: true });
 
+  // The active entry starts as the model the student chose. A combo may move it to a later entry
+  // while no text has been produced yet. After the first chunk the entry never changes.
+  let active: Target = { provider: provider as Provider, model, rate, apiKey };
+  const pending: ComboEntry[] = [...(fallbackEntries ?? [])];
+
   let generator: AsyncGenerator<StreamChunk>;
   let first: IteratorResult<StreamChunk>;
-  try {
-    generator = getProviderAdapter(provider as Provider).streamChat(
-      apiKey,
-      model,
-      messages,
-      upstream.signal
-    );
-    // Prime the generator: the provider fetch runs on the first next(). A provider
-    // failure (bad key, 429, quota) can still become a proper JSON error here.
-    first = await generator.next();
-  } catch (err) {
-    request.signal.removeEventListener("abort", onClientAbort);
-    await settle(0);
-    if (isAbort(err) || request.signal.aborted) return new Response(null, { status: 499 });
-    console.error("provider request failed", err);
-    const c = classifyProviderError(err, provider as Provider, apiKey);
-    return json(
-      {
-        error: c.error,
-        code: c.code,
-        ...(c.retryAfter !== undefined ? { retry_after: c.retryAfter } : {}),
-      },
-      c.status,
-      c.retryAfter !== undefined ? { "Retry-After": String(c.retryAfter) } : undefined
-    );
+  for (;;) {
+    try {
+      generator = getProviderAdapter(active.provider).streamChat(
+        active.apiKey,
+        active.model,
+        messages,
+        upstream.signal
+      );
+      // Prime the generator: the provider fetch runs on the first next(). A provider
+      // failure (bad key, 429, quota) can still become a proper JSON error here.
+      first = await generator.next();
+      break;
+    } catch (err) {
+      const raw = (err as { status?: unknown })?.status;
+      const status = typeof raw === "number" ? raw : 0;
+      if (!isAbort(err) && !request.signal.aborted && isFallbackStatus(status) && pending.length > 0) {
+        const next = await nextEntry(admin, userId, pending);
+        if (next) {
+          console.warn("combo: moving to the next model", { from: active.model, to: next.model, status });
+          active = next;
+          continue;
+        }
+      }
+      request.signal.removeEventListener("abort", onClientAbort);
+      await settle(0);
+      if (isAbort(err) || request.signal.aborted) return new Response(null, { status: 499 });
+      console.error("provider request failed", err);
+      const c = classifyProviderError(err, active.provider, active.apiKey);
+      return json(
+        {
+          error: c.error,
+          code: c.code,
+          ...(c.retryAfter !== undefined ? { retry_after: c.retryAfter } : {}),
+        },
+        c.status,
+        c.retryAfter !== undefined ? { "Retry-After": String(c.retryAfter) } : undefined
+      );
+    }
   }
 
   // 7. Stream SSE. Settle once at the end (finally), also for abort and failure.
@@ -268,7 +343,7 @@ export async function POST(request: Request): Promise<Response> {
   const estimatedCost = () =>
     Math.min(
       holdPaise,
-      calculateCostPaise(inputTokensEstimate, Math.max(1, estimateTokens(output)), rate)
+      calculateCostPaise(inputTokensEstimate, Math.max(1, estimateTokens(output)), active.rate)
     );
   // Charge for text that was produced; refund fully when nothing was produced.
   const partialCost = () => (output.length > 0 ? estimatedCost() : 0);
@@ -292,7 +367,7 @@ export async function POST(request: Request): Promise<Response> {
           // Missing or 0/0 usage means unknown: charge the estimate, never 0.
           const u = part.usage;
           const known = u && (u.input_tokens > 0 || u.output_tokens > 0);
-          const cost = known ? calculateCostPaise(u.input_tokens, u.output_tokens, rate) : estimatedCost();
+          const cost = known ? calculateCostPaise(u.input_tokens, u.output_tokens, active.rate) : estimatedCost();
           await settle(cost);
           send({
             chunk: part.chunk,
@@ -322,7 +397,7 @@ export async function POST(request: Request): Promise<Response> {
           console.error("stream failed", err);
           const cost = partialCost();
           await settle(cost);
-          const c = classifyProviderError(err, provider as Provider, apiKey);
+          const c = classifyProviderError(err, active.provider, active.apiKey);
           send({
             chunk: "",
             done: true,
