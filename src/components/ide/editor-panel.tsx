@@ -5,6 +5,8 @@ import Editor, { type Monaco, type OnMount } from "@monaco-editor/react";
 import { ChevronRight } from "lucide-react";
 import { useFileSystem, findNode } from "@/hooks/use-file-system";
 import { languageFor } from "./language";
+import { registerEditor } from "./editor-bridge";
+import { useEditorPrefs } from "./editor-prefs";
 import { useTheme } from "@/components/ui/theme";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Kbd } from "@/components/ui/kbd";
@@ -76,6 +78,7 @@ function Breadcrumbs({ path, readOnly }: { path: string; readOnly: boolean }) {
 export default function EditorPanel() {
   const { treeFiles, activeFile, openTabs, openFile, closeTab, updateFileContent, flushNow } = useFileSystem();
   const theme = useTheme();
+  const prefs = useEditorPrefs();
   const monacoRef = useRef<Monaco | null>(null);
   const editorRef = useRef<Parameters<OnMount>[0] | null>(null);
   const flushRef = useRef(flushNow);
@@ -132,6 +135,7 @@ export default function EditorPanel() {
               onMount={(editor, monaco) => {
                 monacoRef.current = monaco;
                 editorRef.current = editor;
+                registerEditor(editor);
                 // Ctrl+S saves the project and stops the browser "save page" dialog.
                 editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => void flushRef.current());
                 document.fonts?.ready.then(() => monaco.editor.remeasureFonts());
@@ -140,10 +144,11 @@ export default function EditorPanel() {
                 readOnly: activeFile.readOnly === true,
                 automaticLayout: true,
                 fontFamily,
-                fontSize: 14,
-                lineHeight: 22,
+                fontSize: prefs.fontSize,
+                lineHeight: Math.round(prefs.fontSize * 1.57),
+                wordWrap: prefs.wordWrap ? "on" : "off",
                 fontLigatures: true,
-                minimap: { enabled: false },
+                minimap: { enabled: prefs.minimap },
                 bracketPairColorization: { enabled: true },
                 smoothScrolling: true,
                 cursorSmoothCaretAnimation: "on",

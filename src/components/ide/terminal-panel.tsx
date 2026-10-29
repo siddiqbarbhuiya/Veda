@@ -377,6 +377,8 @@ export default function TerminalPanel({ tabs }: { tabs?: React.ReactNode }) {
     void run();
   });
   useIdeEvent("veda:stop", stop);
+  useIdeEvent("veda:clear-terminal", () => termRef.current?.clear());
+  useIdeEvent("veda:focus-terminal", () => termRef.current?.focus());
 
   const busyLabel = busy.node ?? busy.python;
   const nodeRunning = busy.node === RUNNING_LABEL || busy.node === INSTALL_LABEL;

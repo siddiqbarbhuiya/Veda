@@ -109,6 +109,7 @@ export default function FileTree() {
   // A new file or folder never goes into node_modules.
   const newBase = () => baseDir(selected && !isRuntimePath(selected.path) ? selected : null);
   useIdeEvent("veda:new-file", () => startNew("new-file", newBase()));
+  useIdeEvent("veda:new-folder", () => startNew("new-folder", newBase()));
 
   const startRename = (node: FileNode) => {
     setMenu(null);

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Group,
@@ -13,6 +13,7 @@ import {
 import FileTree from "./file-tree";
 import EditorPanel from "./editor-panel";
 import Toolbar from "./toolbar";
+import { MenuBar } from "./menu-bar";
 import BottomPanel from "./bottom-panel";
 import { TemplateDialog } from "./template-dialog";
 import { PackageDialog } from "./package-dialog";
@@ -258,6 +259,42 @@ function Shell({ tablet }: { tablet: boolean }) {
     shortcuts: openShortcuts,
   });
 
+  const newFolder = useCallback(() => {
+    expandSide("sidebar");
+    afterPaint(() => emit("veda:new-folder"));
+  }, [expandSide]);
+
+  const focusTerminal = useCallback(() => {
+    const t = terminalRef.current;
+    if (t?.isCollapsed()) t.expand();
+    afterPaint(() => emit("veda:focus-terminal"));
+  }, [terminalRef]);
+
+  const menuShell = useMemo(
+    () => ({
+      newFile,
+      newFolder,
+      newFromTemplate: () => setTemplatesOpen(true),
+      openProjects: () => setProjectsOpen(true),
+      save,
+      exportZip: () => setExportOpen(true),
+      goDashboard: () => router.push("/dashboard"),
+      signOut,
+      palette: openPalette,
+      toggleSidebar,
+      toggleTerminal,
+      toggleChat,
+      toggleTheme: () => setTheme(theme === "dark" ? "light" : "dark"),
+      showShortcuts: openShortcuts,
+      run,
+      stop,
+      addPackage: () => setPackagesOpen(true),
+      focusTerminal,
+      clearTerminal: () => emit("veda:clear-terminal"),
+    }),
+    [newFile, newFolder, save, router, signOut, openPalette, toggleSidebar, toggleTerminal, toggleChat, theme, openShortcuts, run, stop, focusTerminal]
+  );
+
   const actions: PaletteActions = {
     run,
     stopRun: stop,
@@ -292,6 +329,7 @@ function Shell({ tablet }: { tablet: boolean }) {
         onRun={run}
         onStop={stop}
       />
+      <MenuBar shell={menuShell} />
       <div className="flex min-h-0 flex-1">
         <ActivityBar
           sidebarOpen={open.sidebar}

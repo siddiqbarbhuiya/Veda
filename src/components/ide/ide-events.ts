@@ -10,6 +10,9 @@ export const IDE_EVENTS = {
   chatStatus: "veda:chat-status",
   focusChat: "veda:focus-chat",
   newFile: "veda:new-file",
+  newFolder: "veda:new-folder",
+  clearTerminal: "veda:clear-terminal",
+  focusTerminal: "veda:focus-terminal",
   balanceChanged: "veda:balance-changed",
   saved: "veda:saved",
   runCommands: "veda:run-commands",
@@ -37,6 +40,12 @@ export type IdeEventMap = {
   "veda:chat-status": { model?: string; lastCostPaise?: number };
   "veda:focus-chat": undefined;
   "veda:new-file": undefined;
+  /** Start a new folder in the file tree. The file tree listens. */
+  "veda:new-folder": undefined;
+  /** Clear the terminal. The terminal panel listens. */
+  "veda:clear-terminal": undefined;
+  /** Move the focus into the terminal. The terminal panel listens. */
+  "veda:focus-terminal": undefined;
   /** The wallet balance changed (for example after an AI reply). The toolbar reloads it. */
   "veda:balance-changed": undefined;
   /** The user saved with Ctrl/Cmd+S. The status bar shows "Saved" for a short time. */
