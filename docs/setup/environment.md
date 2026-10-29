@@ -322,6 +322,42 @@ Do this step after you deploy, or when you use a tunnel (for example `ngrok http
 
 Keep `simulator` until the webhook in step 12b works.
 
+### 12d. Test the payment flow (no Razorpay account needed)
+
+**Simulator test (local, `PAYMENT_MODE=simulator`):**
+
+1. Open http://localhost:3000/dashboard and sign in. Note the wallet amount.
+2. Click **Add Credits**. Click a pack (**Starter** ₹29, **Standard** ₹49, **Value** ₹99).
+3. Make sure the dialog shows **Credits added!** and the wallet goes up.
+   The **Value** pack adds ₹109 (10900 paise): ₹99 plus a ₹10 bonus.
+4. In the Supabase SQL Editor, run
+   `select type, amount_paise, balance_after_paise, description from public.transactions order by created_at desc limit 5;`
+   Make sure the newest row has the description `Wallet top-up (simulator)`.
+
+Result on 2026-10-29: the Value pack took the balance from 1000 to 11900 paise. The `transactions` row matched.
+
+**Negative tests:**
+
+| Test | Expected result |
+|---|---|
+| `POST /api/wallet/topup` with `{"amount_paise": 100}` | `400` "amount_paise must be one of: 2900, 4900, 9900" |
+| `POST /api/wallet/topup` with a broken JSON body | `400` "Invalid JSON body" |
+| A signed-in user runs `update profiles set balance_paise = ...` | `permission denied for table profiles` |
+
+**Webhook handler test (signed fake events):** send `POST /api/webhooks/razorpay` with the header
+`x-razorpay-signature` set to the hex HMAC-SHA256 of the raw body, made with `RAZORPAY_WEBHOOK_SECRET`.
+The body is `{"event":"payment.captured","payload":{"payment":{"entity":{"id":"pay_X","order_id":"order_X","amount":2900,"notes":{"user_id":"<profile id>"}}}}}`.
+
+| Case | Expected result |
+|---|---|
+| No signature, or a wrong signature | `400` "Invalid signature" |
+| A different event, for example `payment.failed` | `200`, no credit |
+| `amount` that is not 2900, 4900 or 9900 | `400` "Invalid payment payload" |
+| A valid `payment.captured` | `200`, the balance goes up, one `transactions` row with the payment id |
+| The same event sent again | `200`, **no** second credit (the `razorpay_payment_id` is unique) |
+
+Result on 2026-10-29: all 6 cases matched. The balance went from 11900 to 14800 paise, and the replay added no second row.
+
 ## 13. Create `.env.local`
 
 1. Run `cp .env.example .env.local` (on Windows PowerShell: `Copy-Item .env.example .env.local`).
