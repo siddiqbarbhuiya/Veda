@@ -57,6 +57,12 @@ const cost = calculateCostPaise(inputTokens, outputTokens, rate);
 
 See [docs/setup/environment.md](docs/setup/environment.md) for the full setup guide.
 
+## Knowledge Graph
+
+The graph below shows the codebase structure — modules, components, and their relationships. It updates automatically on each push to `main`.
+
+![Veda Knowledge Graph](docs/graph.svg)
+
 ## Docs
 - [Environment setup](docs/setup/environment.md)
 - [Design specification](docs/specs/2026-10-29-veda-mvp-design.md)
