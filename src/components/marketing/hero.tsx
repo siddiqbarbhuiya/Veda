@@ -11,7 +11,7 @@ const trust = [
 
 export function Hero() {
   return (
-    <section aria-labelledby="hero-title" className="overflow-hidden pb-16 pt-14 md:pb-24 md:pt-24">
+    <section aria-labelledby="hero-title" className="overflow-hidden pb-16 pt-12 md:pb-24 md:pt-16">
       <div className="mx-auto w-full max-w-6xl px-4 md:px-6">
         <div className="mx-auto max-w-3xl text-center">
           <h1

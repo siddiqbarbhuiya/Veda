@@ -7,8 +7,8 @@ import { LaunchScene } from "./launch-scene";
 /* Permanent MVP launch banner on the home page. The pop-up shows the same message once. */
 export function LaunchStrip() {
   return (
-    <section aria-labelledby="launch-title" className="mx-auto w-full max-w-6xl px-4 pt-6 md:px-6">
-      <div className="grid overflow-hidden rounded-2xl border border-line-strong bg-panel shadow-e1 md:grid-cols-2">
+    <section aria-labelledby="launch-title" className="mx-auto w-full max-w-6xl px-4 pt-6 md:px-6 md:pt-8">
+      <div className="grid overflow-hidden rounded-2xl border border-line-strong bg-panel shadow-e1 lg:grid-cols-2">
         <div className="flex flex-col justify-center p-6 md:p-10">
           <div className="mb-4 flex flex-wrap items-center gap-2">
             <Badge tone="accent" icon={<Rocket size={12} aria-hidden="true" />}>
@@ -20,7 +20,8 @@ export function LaunchStrip() {
             id="launch-title"
             className="font-display text-[28px] font-semibold leading-tight tracking-[-0.02em] text-fg md:text-4xl"
           >
-            Veda v1 is live. This is our first version.
+            Veda v1 is live.
+            <span className="block text-accent-text">This is our first version.</span>
           </h2>
           <p className="mt-3 max-w-prose text-fg-2">
             We are launching our MVP. Bring your own AI key, write code in the browser, and tell us what to build next. Your

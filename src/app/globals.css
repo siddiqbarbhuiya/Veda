@@ -418,9 +418,8 @@ body:has(dialog.veda-dialog[open]) {
 @layer components {
   .launch-stage {
     position: relative;
-    height: 11rem;
-    min-height: 11rem;
-    perspective: 900px;
+    min-height: 15rem;
+    perspective: 1000px;
     overflow: hidden;
     background: var(--accent-subtle);
   }
@@ -433,15 +432,17 @@ body:has(dialog.veda-dialog[open]) {
     opacity: 0.2;
   }
 
+  /* The scene is centered in the stage and scaled down on narrow screens so no panel is clipped. */
   .launch-scene {
     position: absolute;
     left: 50%;
-    top: 50%;
+    top: 54%;
     width: 13rem;
     height: 7.5rem;
-    margin: -3.75rem 0 0 -6.5rem;
+    margin: -3.75rem 0 0 -7.5rem;
+    scale: 0.6;
     transform-style: preserve-3d;
-    transform: rotateX(12deg) rotateY(-20deg); /* static pose for reduced motion */
+    transform: rotateX(10deg) rotateY(-10deg); /* static pose for reduced motion */
     animation: launch-spin 8s var(--ease-in-out-expo) infinite alternate;
   }
 
@@ -451,34 +452,37 @@ body:has(dialog.veda-dialog[open]) {
     animation: launch-float 4s var(--ease-in-out-expo) infinite alternate;
   }
 
-  .launch-layer-back {
-    transform: translate3d(-3.5rem, -0.5rem, -60px);
-  }
+  /* Code panel in front and centered. Terminal and chat sit behind it, left and right. */
   .launch-layer-mid {
-    transform: translate3d(0, 0.5rem, 0);
+    transform: translate3d(0, 0.75rem, 50px);
+  }
+  .launch-layer-back {
+    transform: translate3d(-4.75rem, 1.5rem, -60px);
     animation-delay: -1.3s;
   }
   .launch-layer-front {
-    transform: translate3d(3.5rem, 1.5rem, 60px);
+    transform: translate3d(4rem, -0.75rem, -60px);
     animation-delay: -2.6s;
   }
 
   .launch-mark {
     position: absolute;
     left: 50%;
-    top: -1.75rem;
+    top: -3.25rem;
     margin-left: -1.75rem;
-    transform: translateZ(110px);
+    transform: translateZ(90px);
     animation: launch-float 3s var(--ease-in-out-expo) infinite alternate;
     filter: drop-shadow(0 8px 16px color-mix(in srgb, var(--accent) 45%, transparent));
   }
 
-  @media (min-width: 640px) {
-    .launch-stage {
-      height: 14rem;
-    }
+  @media (min-width: 480px) {
     .launch-scene {
-      scale: 1.25;
+      scale: 0.8;
+    }
+  }
+  @media (min-width: 640px) {
+    .launch-scene {
+      scale: 1;
     }
   }
 
@@ -507,10 +511,10 @@ body:has(dialog.veda-dialog[open]) {
 
   @keyframes launch-spin {
     from {
-      transform: rotateX(14deg) rotateY(-26deg);
+      transform: rotateX(12deg) rotateY(-18deg);
     }
     to {
-      transform: rotateX(8deg) rotateY(26deg);
+      transform: rotateX(8deg) rotateY(10deg);
     }
   }
   @keyframes launch-float {
