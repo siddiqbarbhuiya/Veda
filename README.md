@@ -74,9 +74,79 @@ Python packages installed in the browser are not included.
 
 ## Knowledge Graph
 
-The graph below shows the codebase structure — modules, components, and their relationships. It updates automatically on each push to `main`.
+The map below shows how the code folders in `src/` depend on each other. A box is a folder with its number of
+symbols. An arrow is a dependency, and its number is how many imports and calls there are. It updates on each push to
+`main` that changes `src/`, from the graphify knowledge graph (`scripts/graph-mermaid.mjs`).
 
-![Veda Knowledge Graph](docs/graph.svg)
+<!-- graph:start -->
+```mermaid
+flowchart LR
+  subgraph L_app["app"]
+    n0["app<br/>47 symbols"]:::app
+    n1["app/(auth)<br/>8 symbols"]:::app
+    n2["app/(dashboard)<br/>8 symbols"]:::app
+    n3["app/(legal)<br/>14 symbols"]:::app
+    n4["app/api<br/>69 symbols"]:::app
+  end
+  subgraph L_components["components"]
+    n5["components/dashboard<br/>30 symbols"]:::components
+    n6["components/ide<br/>285 symbols"]:::components
+    n7["components/keys<br/>6 symbols"]:::components
+    n8["components/marketing<br/>48 symbols"]:::components
+    n9["components/ui<br/>42 symbols"]:::components
+  end
+  subgraph L_hooks["hooks"]
+    n10["hooks<br/>137 symbols"]:::hooks
+  end
+  subgraph L_lib["lib"]
+    n11["lib<br/>58 symbols"]:::lib
+    n12["lib/agent<br/>161 symbols"]:::lib
+    n13["lib/auth<br/>7 symbols"]:::lib
+    n14["lib/billing<br/>17 symbols"]:::lib
+    n15["lib/export<br/>16 symbols"]:::lib
+    n16["lib/files<br/>42 symbols"]:::lib
+    n17["lib/packages<br/>21 symbols"]:::lib
+    n18["lib/persistence<br/>43 symbols"]:::lib
+    n19["lib/razorpay<br/>15 symbols"]:::lib
+    n20["lib/supabase<br/>8 symbols"]:::lib
+    n21["lib/templates<br/>79 symbols"]:::lib
+  end
+  n6 -->|129| n9
+  n6 -->|129| n10
+  n6 -->|105| n11
+  n4 -->|101| n12
+  n8 -->|49| n9
+  n5 -->|46| n9
+  n10 -->|45| n16
+  n6 -->|42| n21
+  n10 -->|38| n18
+  n0 -->|33| n8
+  n6 -->|33| n12
+  n9 -->|29| n11
+  n3 -->|28| n8
+  n4 -->|26| n20
+  n6 -->|25| n15
+  n2 -->|24| n5
+  n4 -->|21| n11
+  n4 -->|21| n14
+  n6 -->|21| n16
+  n5 -->|20| n11
+  n7 -->|19| n9
+  n7 -->|19| n11
+  n0 -->|17| n9
+  n2 -->|17| n9
+  n4 -->|17| n19
+  n6 -->|17| n17
+  n1 -->|16| n13
+  n10 -->|16| n11
+  classDef app fill:#4f46e5,stroke:#4f46e5,color:#ffffff
+  classDef components fill:#0891b2,stroke:#0891b2,color:#ffffff
+  classDef hooks fill:#059669,stroke:#059669,color:#ffffff
+  classDef lib fill:#d97706,stroke:#d97706,color:#ffffff
+  classDef types fill:#7c3aed,stroke:#7c3aed,color:#ffffff
+  classDef other fill:#64748b,stroke:#64748b,color:#ffffff
+```
+<!-- graph:end -->
 
 ## Docs
 - [Environment setup (step by step, for beginners)](docs/setup/environment.md)
