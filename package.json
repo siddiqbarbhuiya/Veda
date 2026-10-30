@@ -1,6 +1,11 @@
 {
   "name": "veda",
   "version": "0.1.0",
+  "description": "A browser IDE for Indian college students: bring your own AI key and pay in rupees with UPI.",
+  "license": "MIT",
+  "author": "Siddiq Barbhuiya",
+  "homepage": "https://veda-ecru-theta.vercel.app",
+  "repository": { "type": "git", "url": "git+https://github.com/siddiqbarbhuiya/Veda.git" },
   "private": true,
   "scripts": {
     "dev": "next dev",
